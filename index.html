@@ -2264,83 +2264,226 @@
         }
 
         // ==================== 手动合并处理（支持框选单元格） ====================
+
         
+        // ==================== 手动合并处理（支持框选单元格） ====================
+
         async function startManualMergeProcess() {
-            if (state.isProcessing) return;
+    if (state.isProcessing) return;
 
-            const configuredFiles = state.files.filter(file => 
-                state.manualConfig.fileData[file.name] && 
-                state.manualConfig.fileData[file.name].configured
-            );
+    const configuredFiles = state.files.filter(file => 
+        state.manualConfig.fileData[file.name] && 
+        state.manualConfig.fileData[file.name].configured
+    );
 
-            if (configuredFiles.length === 0) {
-                log('没有已配置的文件', 'error');
-                return;
-            }
+    if (configuredFiles.length === 0) {
+        log('没有已配置的文件', 'error');
+        return;
+    }
 
-            const groups = Object.keys(state.manualConfig.groups);
-            if (groups.length === 0) {
-                log('请先创建分组', 'error');
-                return;
-            }
+    const groups = Object.keys(state.manualConfig.groups);
+    if (groups.length === 0) {
+        log('请先创建分组', 'error');
+        return;
+    }
 
-            state.isProcessing = true;
-            elements.startManualMergeBtn.disabled = true;
-            updateStatus('正在分组合并...', true);
-            
-            state.groupResults = {};
-            elements.groupDownloadSection.classList.remove('active');
+    state.isProcessing = true;
+    elements.startManualMergeBtn.disabled = true;
+    updateStatus('正在分组合并...', true);
+    
+    state.groupResults = {};
+    elements.groupDownloadSection.classList.remove('active');
+    
+    try {
+        showProgress(5);
+        let progress = 5;
+
+        // 读取所有已配置文件的数据
+        const allData = {};
+        for (const file of configuredFiles) {
+            progress += 5;
+            showProgress(progress);
             
             try {
-                showProgress(5);
-                let progress = 5;
+                if (!state.manualConfig.fileData[file.name].data) {
+                    const data = await readFileData(file);
+                    state.manualConfig.fileData[file.name].data = data;
+                }
+                allData[file.name] = state.manualConfig.fileData[file.name].data;
+                log(`已读取文件: ${file.name}, 数据行数: ${allData[file.name].length}`, 'info');
+            } catch (error) {
+                log(`读取文件 ${file.name} 失败: ${error.message}`, 'error');
+            }
+        }
 
-                // 读取所有已配置文件的数据
-                const allData = {};
-                for (const file of configuredFiles) {
-                    progress += 5;
-                    showProgress(progress);
-                    
-                    try {
-                        if (!state.manualConfig.fileData[file.name].data) {
-                            const data = await readFileData(file);
-                            state.manualConfig.fileData[file.name].data = data;
-                        }
-                        allData[file.name] = state.manualConfig.fileData[file.name].data;
-                        log(`已读取文件: ${file.name}, 数据行数: ${allData[file.name].length}`, 'info');
-                    } catch (error) {
-                        log(`读取文件 ${file.name} 失败: ${error.message}`, 'error');
+        const groupCount = groups.length;
+        let completedGroups = 0;
+
+        log(`开始处理 ${groupCount} 个分组...`, 'info');
+
+        for (const groupName of groups) {
+            const group = state.manualConfig.groups[groupName];
+            
+            log(`正在处理分组: ${groupName}`, 'info');
+            showProgress(5 + (completedGroups / groupCount) * 80);
+
+            const groupData = {
+                parameters: [],
+                data: []
+            };
+
+            // 计算这个分组中所有文件的数据列数的最大值，用于表头
+            let maxDataColsCount = 0;
+            for (const file of configuredFiles) {
+                const fileConfig = group.fileConfigs[file.name];
+                if (fileConfig && fileConfig.dataCols) {
+                    maxDataColsCount = Math.max(maxDataColsCount, fileConfig.dataCols.length);
+                }
+            }
+
+            for (const file of configuredFiles) {
+                const fileConfig = group.fileConfigs[file.name];
+                if (!fileConfig) {
+                    log(`  跳过文件 ${file.name} (此组未配置)`, 'warning');
+                    continue;
+                }
+
+                const data = allData[file.name];
+                if (!data || data.length === 0) {
+                    log(`  跳过文件 ${file.name} (数据为空)`, 'warning');
+                    continue;
+                }
+
+                const paramCol = fileConfig.paramCol;
+                // 如果是整列，paramRowStart 和 paramRowEnd 会是 undefined
+                const paramRowStart = fileConfig.paramRowStart !== undefined ? fileConfig.paramRowStart : 1;
+                const paramRowEnd = fileConfig.paramRowEnd !== undefined ? fileConfig.paramRowEnd : (data.length - 1);
+                const dataCols = fileConfig.dataCols;
+                // 如果是整列，dataRowStart 和 dataRowEnd 会是 undefined
+                const dataRowStart = fileConfig.dataRowStart !== undefined ? fileConfig.dataRowStart : 1;
+                const dataRowEnd = fileConfig.dataRowEnd !== undefined ? fileConfig.dataRowEnd : (data.length - 1);
+
+                // 确保行索引在有效范围内
+                const actualParamRowStart = Math.max(paramRowStart, 1);
+                const actualParamRowEnd = Math.min(paramRowEnd, data.length - 1);
+                const actualDataRowStart = Math.max(dataRowStart, 1);
+                const actualDataRowEnd = Math.min(dataRowEnd, data.length - 1);
+
+                // 计算实际处理的行范围（取参数列和数据列的交集）
+                const actualRowStart = Math.max(actualParamRowStart, actualDataRowStart);
+                const actualRowEnd = Math.min(actualParamRowEnd, actualDataRowEnd);
+
+                if (actualRowStart > actualRowEnd) {
+                    log(`  跳过文件 ${file.name} (行范围不匹配: ${actualRowStart + 1}-${actualRowEnd + 1})`, 'warning');
+                    continue;
+                }
+
+                // 检查列索引是否有效
+                if (paramCol < 0 || paramCol >= data[0].length) {
+                    log(`  跳过文件 ${file.name} (参数列索引 ${paramCol + 1} 超出范围)`, 'error');
+                    continue;
+                }
+
+                for (const col of dataCols) {
+                    if (col < 0 || col >= data[0].length) {
+                        log(`  跳过文件 ${file.name} (数据列索引 ${col + 1} 超出范围)`, 'error');
+                        continue;
                     }
                 }
 
-                const groupCount = groups.length;
-                let completedGroups = 0;
+                let processedRows = 0;
+                for (let row = actualRowStart; row <= actualRowEnd; row++) {
+                    // 检查行是否存在
+                    if (row < 0 || row >= data.length) {
+                        log(`  文件 ${file.name} 行 ${row + 1} 超出范围`, 'warning');
+                        continue;
+                    }
 
-                log(`开始处理 ${groupCount} 个分组...`, 'info');
+                    const paramCell = data[row][paramCol];
+                    if (paramCell === undefined || paramCell === null || String(paramCell).trim() === '') {
+                        continue;
+                    }
 
-                for (const groupName of groups) {
-                    const group = state.manualConfig.groups[groupName];
+                    const param = String(paramCell).trim();
+                    const rowData = [param];
+
+                    // 处理数据列
+                    for (const col of dataCols) {
+                        // 检查列是否存在
+                        if (col >= data[row].length) {
+                            rowData.push(0);
+                            continue;
+                        }
+                        
+                        const cell = data[row][col];
+                        let value = 0;
+                        
+                        if (cell !== undefined && cell !== null && cell !== '') {
+                            const num = parseFloat(cell);
+                            if (!isNaN(num)) {
+                                value = num;
+                            }
+                        }
+                        rowData.push(value);
+                    }
+
+                    // 如果数据列数不足最大列数，用0填充
+                    while (rowData.length - 1 < maxDataColsCount) {
+                        rowData.push(0);
+                    }
+
+                    if (groupData.parameters.length === 0) {
+                        groupData.parameters.push(param);
+                        groupData.data.push(rowData);
+                    } else {
+                        const existingIndex = groupData.parameters.indexOf(param);
+                        if (existingIndex === -1) {
+                            groupData.parameters.push(param);
+                            groupData.data.push(rowData);
+                        } else {
+                            // 累加数值
+                            for (let i = 1; i < rowData.length; i++) {
+                                const currentVal = groupData.data[existingIndex][i] || 0;
+                                groupData.data[existingIndex][i] = currentVal + (rowData[i] || 0);
+                            }
+                        }
+                    }
                     
-                    log(`正在处理分组: ${groupName}`, 'info');
-                    showProgress(5 + (completedGroups / groupCount) * 80);
+                    processedRows++;
+                }
 
-                    const groupData = {
-                        parameters: [],
-                        data: []
-                    };
+                log(`  文件 ${file.name}: 处理 ${processedRows} 行 (行${actualRowStart + 1}-${actualRowEnd + 1})`, 'info');
+            }
 
+            if (groupData.data.length > 0) {
+                const workbook = XLSX.utils.book_new();
+
+                // 1. 合并结果sheet
+                const resultSheetData = [];
+                
+                // 创建表头
+                const header = ['参数'];
+                for (let i = 1; i <= maxDataColsCount; i++) {
+                    header.push(`数据${i}`);
+                }
+                resultSheetData.push(header);
+                
+                // 添加数据
+                resultSheetData.push(...groupData.data);
+                
+                const resultWorksheet = XLSX.utils.aoa_to_sheet(resultSheetData);
+                XLSX.utils.book_append_sheet(workbook, resultWorksheet, '合并结果');
+
+                // 2. 计算明细sheet（可选）
+                try {
+                    const detailSheetData = [['文件名', '行号', '参数', ...Array.from({length: maxDataColsCount}, (_, i) => `数据${i+1}`)]];
+                    
                     for (const file of configuredFiles) {
                         const fileConfig = group.fileConfigs[file.name];
-                        if (!fileConfig) {
-                            log(`  跳过文件 ${file.name} (此组未配置)`, 'warning');
-                            continue;
-                        }
+                        if (!fileConfig) continue;
 
                         const data = allData[file.name];
-                        if (!data || data.length === 0) {
-                            log(`  跳过文件 ${file.name} (数据为空)`, 'warning');
-                            continue;
-                        }
+                        if (!data || data.length === 0) continue;
 
                         const paramCol = fileConfig.paramCol;
                         const paramRowStart = fileConfig.paramRowStart !== undefined ? fileConfig.paramRowStart : 1;
@@ -2349,205 +2492,91 @@
                         const dataRowStart = fileConfig.dataRowStart !== undefined ? fileConfig.dataRowStart : 1;
                         const dataRowEnd = fileConfig.dataRowEnd !== undefined ? fileConfig.dataRowEnd : (data.length - 1);
 
-                        // 确保行索引在有效范围内
                         const actualParamRowStart = Math.max(paramRowStart, 1);
                         const actualParamRowEnd = Math.min(paramRowEnd, data.length - 1);
                         const actualDataRowStart = Math.max(dataRowStart, 1);
                         const actualDataRowEnd = Math.min(dataRowEnd, data.length - 1);
 
-                        // 计算实际处理的行范围（取参数列和数据列的交集）
                         const actualRowStart = Math.max(actualParamRowStart, actualDataRowStart);
                         const actualRowEnd = Math.min(actualParamRowEnd, actualDataRowEnd);
 
-                        if (actualRowStart > actualRowEnd) {
-                            log(`  跳过文件 ${file.name} (行范围不匹配: ${actualRowStart}-${actualRowEnd})`, 'warning');
-                            continue;
-                        }
-
-                        // 检查列索引是否有效
-                        if (paramCol < 0 || paramCol >= data[0].length) {
-                            log(`  跳过文件 ${file.name} (参数列索引 ${paramCol + 1} 超出范围)`, 'error');
-                            continue;
-                        }
-
-                        for (const col of dataCols) {
-                            if (col < 0 || col >= data[0].length) {
-                                log(`  跳过文件 ${file.name} (数据列索引 ${col + 1} 超出范围)`, 'error');
-                                continue;
-                            }
-                        }
-
-                        let processedRows = 0;
                         for (let row = actualRowStart; row <= actualRowEnd; row++) {
-                            // 检查行是否存在
-                            if (row < 0 || row >= data.length) {
-                                log(`  文件 ${file.name} 行 ${row + 1} 超出范围`, 'warning');
-                                continue;
-                            }
-
+                            if (row >= data.length) continue;
+                            
                             const paramCell = data[row][paramCol];
-                            if (paramCell === undefined || paramCell === null || String(paramCell).trim() === '') {
-                                continue;
-                            }
+                            if (paramCell === undefined || paramCell === null || String(paramCell).trim() === '') continue;
 
                             const param = String(paramCell).trim();
-                            const rowData = [param];
+                            const rowData = [file.name, row + 1, param];
 
-                            for (const col of dataCols) {
-                                // 检查列是否存在
-                                if (col >= data[row].length) {
-                                    rowData.push(0);
-                                    continue;
-                                }
-                                
-                                const cell = data[row][col];
+                            // 处理数据列
+                            for (let i = 0; i < maxDataColsCount; i++) {
                                 let value = 0;
-                                
-                                if (cell !== undefined && cell !== null && cell !== '') {
-                                    const num = parseFloat(cell);
-                                    if (!isNaN(num)) {
-                                        value = num;
+                                if (i < dataCols.length) {
+                                    const col = dataCols[i];
+                                    if (col < data[row].length) {
+                                        const cell = data[row][col];
+                                        if (cell !== undefined && cell !== null && cell !== '') {
+                                            const num = parseFloat(cell);
+                                            if (!isNaN(num)) {
+                                                value = num;
+                                            }
+                                        }
                                     }
                                 }
                                 rowData.push(value);
                             }
 
-                            if (groupData.parameters.length === 0) {
-                                groupData.parameters.push(param);
-                                groupData.data.push(rowData);
-                            } else {
-                                const existingIndex = groupData.parameters.indexOf(param);
-                                if (existingIndex === -1) {
-                                    groupData.parameters.push(param);
-                                    groupData.data.push(rowData);
-                                } else {
-                                    // 累加数值
-                                    for (let i = 1; i < rowData.length; i++) {
-                                        const currentVal = groupData.data[existingIndex][i] || 0;
-                                        groupData.data[existingIndex][i] = currentVal + (rowData[i] || 0);
-                                    }
-                                }
-                            }
-                            
-                            processedRows++;
+                            detailSheetData.push(rowData);
                         }
-
-                        log(`  文件 ${file.name}: 处理 ${processedRows} 行 (行${actualRowStart + 1}-${actualRowEnd + 1})`, 'info');
                     }
 
-                    if (groupData.data.length > 0) {
-                        const workbook = XLSX.utils.book_new();
-
-                        // 1. 合并结果sheet
-                        const resultSheetData = [];
-                        
-                        // 创建表头
-                        const header = ['参数'];
-                        const dataColCount = groupData.data[0] ? groupData.data[0].length - 1 : 0;
-                        for (let i = 1; i <= dataColCount; i++) {
-                            header.push(`数据${i}`);
-                        }
-                        resultSheetData.push(header);
-                        
-                        // 添加数据
-                        resultSheetData.push(...groupData.data);
-                        
-                        const resultWorksheet = XLSX.utils.aoa_to_sheet(resultSheetData);
-                        XLSX.utils.book_append_sheet(workbook, resultWorksheet, '合并结果');
-
-                        // 2. 计算明细sheet（可选）
-                        try {
-                            const detailSheetData = [['文件名', '行号', '参数', ...Array.from({length: dataColCount}, (_, i) => `数据${i+1}`)]];
-                            
-                            for (const file of configuredFiles) {
-                                const fileConfig = group.fileConfigs[file.name];
-                                if (!fileConfig) continue;
-
-                                const data = allData[file.name];
-                                if (!data || data.length === 0) continue;
-
-                                const paramCol = fileConfig.paramCol;
-                                const paramRowStart = fileConfig.paramRowStart !== undefined ? fileConfig.paramRowStart : 1;
-                                const paramRowEnd = fileConfig.paramRowEnd !== undefined ? fileConfig.paramRowEnd : (data.length - 1);
-                                const dataCols = fileConfig.dataCols;
-                                const dataRowStart = fileConfig.dataRowStart !== undefined ? fileConfig.dataRowStart : 1;
-                                const dataRowEnd = fileConfig.dataRowEnd !== undefined ? fileConfig.dataRowEnd : (data.length - 1);
-
-                                const actualRowStart = Math.max(paramRowStart, dataRowStart);
-                                const actualRowEnd = Math.min(paramRowEnd, dataRowEnd);
-
-                                for (let row = actualRowStart; row <= actualRowEnd; row++) {
-                                    if (row >= data.length) continue;
-                                    
-                                    const paramCell = data[row][paramCol];
-                                    if (paramCell === undefined || paramCell === null || String(paramCell).trim() === '') continue;
-
-                                    const param = String(paramCell).trim();
-                                    const rowData = [file.name, row + 1, param];
-
-                                    for (const col of dataCols) {
-                                        let value = 0;
-                                        if (col < data[row].length) {
-                                            const cell = data[row][col];
-                                            if (cell !== undefined && cell !== null && cell !== '') {
-                                                const num = parseFloat(cell);
-                                                if (!isNaN(num)) {
-                                                    value = num;
-                                                }
-                                            }
-                                        }
-                                        rowData.push(value);
-                                    }
-
-                                    detailSheetData.push(rowData);
-                                }
-                            }
-
-                            const detailWorksheet = XLSX.utils.aoa_to_sheet(detailSheetData);
-                            XLSX.utils.book_append_sheet(workbook, detailWorksheet, '计算明细');
-                        } catch (detailError) {
-                            log(`创建明细表失败: ${detailError.message}`, 'warning');
-                        }
-
-                        // 生成Blob
-                        const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-                        const blob = new Blob([wbout], { type: 'application/octet-stream' });
-
-                        // 存储结果
-                        state.groupResults[groupName] = {
-                            blob: blob,
-                            workbook: workbook,
-                            recordCount: groupData.data.length
-                        };
-
-                        log(`✓ 分组 "${groupName}" 处理完成，${groupData.data.length} 条记录`, 'success');
-                    } else {
-                        log(`⚠ 分组 "${groupName}" 无数据`, 'warning');
-                    }
-
-                    completedGroups++;
+                    const detailWorksheet = XLSX.utils.aoa_to_sheet(detailSheetData);
+                    XLSX.utils.book_append_sheet(workbook, detailWorksheet, '计算明细');
+                } catch (detailError) {
+                    log(`创建明细表失败: ${detailError.message}`, 'warning');
+                    console.error('明细表创建错误详情:', detailError);
                 }
 
-                showProgress(100);
-                
-                renderGroupDownloadList();
-                
-                log('所有分组处理完成！', 'success');
-                updateStatus('分组合并完成', false);
+                // 生成Blob
+                const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+                const blob = new Blob([wbout], { type: 'application/octet-stream' });
 
-            } catch (error) {
-                log(`分组合并错误: ${error.message}`, 'error');
-                console.error('合并错误详情:', error);
-                updateStatus('处理失败', false);
-            } finally {
-                setTimeout(() => {
-                    state.isProcessing = false;
-                    elements.startManualMergeBtn.disabled = false;
-                    hideProgress();
-                }, 1000);
+                // 存储结果
+                state.groupResults[groupName] = {
+                    blob: blob,
+                    workbook: workbook,
+                    recordCount: groupData.data.length
+                };
+
+                log(`✓ 分组 "${groupName}" 处理完成，${groupData.data.length} 条记录`, 'success');
+            } else {
+                log(`⚠ 分组 "${groupName}" 无数据`, 'warning');
             }
+
+            completedGroups++;
         }
 
+        showProgress(100);
+        
+        renderGroupDownloadList();
+        
+        log('所有分组处理完成！', 'success');
+        updateStatus('分组合并完成', false);
+
+    } catch (error) {
+        log(`分组合并错误: ${error.message}`, 'error');
+        console.error('合并错误详情:', error);
+        updateStatus('处理失败', false);
+    } finally {
+        setTimeout(() => {
+            state.isProcessing = false;
+            elements.startManualMergeBtn.disabled = false;
+            hideProgress();
+        }, 1000);
+    }
+}
+            
         function renderGroupDownloadList() {
             const groups = Object.keys(state.groupResults);
             
