@@ -2124,7 +2124,16 @@
                             return;
                         }
                         
-                        resolve(jsonData);
+                        // 确保所有行都有相同的列数（填充空值）
+                        const maxCols = Math.max(...jsonData.map(row => row.length));
+                        const paddedData = jsonData.map(row => {
+                            while (row.length < maxCols) {
+                                row.push('');
+                            }
+                            return row;
+                        });
+                        
+                        resolve(paddedData);
                     } catch (err) {
                         reject(err);
                     }
@@ -2292,11 +2301,16 @@
                     progress += 5;
                     showProgress(progress);
                     
-                    if (!state.manualConfig.fileData[file.name].data) {
-                        const data = await readFileData(file);
-                        state.manualConfig.fileData[file.name].data = data;
+                    try {
+                        if (!state.manualConfig.fileData[file.name].data) {
+                            const data = await readFileData(file);
+                            state.manualConfig.fileData[file.name].data = data;
+                        }
+                        allData[file.name] = state.manualConfig.fileData[file.name].data;
+                        log(`已读取文件: ${file.name}, 数据行数: ${allData[file.name].length}`, 'info');
+                    } catch (error) {
+                        log(`读取文件 ${file.name} 失败: ${error.message}`, 'error');
                     }
-                    allData[file.name] = state.manualConfig.fileData[file.name].data;
                 }
 
                 const groupCount = groups.length;
@@ -2323,33 +2337,78 @@
                         }
 
                         const data = allData[file.name];
-                        if (!data || data.length === 0) continue;
-
-                        const paramCol = fileConfig.paramCol;
-                        const paramRowStart = fileConfig.paramRowStart || 1;
-                        const paramRowEnd = fileConfig.paramRowEnd || (data.length - 1);
-                        const dataCols = fileConfig.dataCols;
-                        const dataRowStart = fileConfig.dataRowStart || 1;
-                        const dataRowEnd = fileConfig.dataRowEnd || (data.length - 1);
-
-                        const actualRowStart = Math.max(paramRowStart, dataRowStart);
-                        const actualRowEnd = Math.min(paramRowEnd, dataRowEnd);
-
-                        if (actualRowStart > actualRowEnd) {
-                            log(`  跳过文件 ${file.name} (行范围不匹配)`, 'warning');
+                        if (!data || data.length === 0) {
+                            log(`  跳过文件 ${file.name} (数据为空)`, 'warning');
                             continue;
                         }
 
+                        const paramCol = fileConfig.paramCol;
+                        const paramRowStart = fileConfig.paramRowStart !== undefined ? fileConfig.paramRowStart : 1;
+                        const paramRowEnd = fileConfig.paramRowEnd !== undefined ? fileConfig.paramRowEnd : (data.length - 1);
+                        const dataCols = fileConfig.dataCols;
+                        const dataRowStart = fileConfig.dataRowStart !== undefined ? fileConfig.dataRowStart : 1;
+                        const dataRowEnd = fileConfig.dataRowEnd !== undefined ? fileConfig.dataRowEnd : (data.length - 1);
+
+                        // 确保行索引在有效范围内
+                        const actualParamRowStart = Math.max(paramRowStart, 1);
+                        const actualParamRowEnd = Math.min(paramRowEnd, data.length - 1);
+                        const actualDataRowStart = Math.max(dataRowStart, 1);
+                        const actualDataRowEnd = Math.min(dataRowEnd, data.length - 1);
+
+                        // 计算实际处理的行范围（取参数列和数据列的交集）
+                        const actualRowStart = Math.max(actualParamRowStart, actualDataRowStart);
+                        const actualRowEnd = Math.min(actualParamRowEnd, actualDataRowEnd);
+
+                        if (actualRowStart > actualRowEnd) {
+                            log(`  跳过文件 ${file.name} (行范围不匹配: ${actualRowStart}-${actualRowEnd})`, 'warning');
+                            continue;
+                        }
+
+                        // 检查列索引是否有效
+                        if (paramCol < 0 || paramCol >= data[0].length) {
+                            log(`  跳过文件 ${file.name} (参数列索引 ${paramCol + 1} 超出范围)`, 'error');
+                            continue;
+                        }
+
+                        for (const col of dataCols) {
+                            if (col < 0 || col >= data[0].length) {
+                                log(`  跳过文件 ${file.name} (数据列索引 ${col + 1} 超出范围)`, 'error');
+                                continue;
+                            }
+                        }
+
+                        let processedRows = 0;
                         for (let row = actualRowStart; row <= actualRowEnd; row++) {
+                            // 检查行是否存在
+                            if (row < 0 || row >= data.length) {
+                                log(`  文件 ${file.name} 行 ${row + 1} 超出范围`, 'warning');
+                                continue;
+                            }
+
                             const paramCell = data[row][paramCol];
-                            if (!paramCell || String(paramCell).trim() === '') continue;
+                            if (paramCell === undefined || paramCell === null || String(paramCell).trim() === '') {
+                                continue;
+                            }
 
                             const param = String(paramCell).trim();
                             const rowData = [param];
 
                             for (const col of dataCols) {
+                                // 检查列是否存在
+                                if (col >= data[row].length) {
+                                    rowData.push(0);
+                                    continue;
+                                }
+                                
                                 const cell = data[row][col];
-                                const value = cell && !isNaN(parseFloat(cell)) ? parseFloat(cell) : 0;
+                                let value = 0;
+                                
+                                if (cell !== undefined && cell !== null && cell !== '') {
+                                    const num = parseFloat(cell);
+                                    if (!isNaN(num)) {
+                                        value = num;
+                                    }
+                                }
                                 rowData.push(value);
                             }
 
@@ -2362,64 +2421,93 @@
                                     groupData.parameters.push(param);
                                     groupData.data.push(rowData);
                                 } else {
+                                    // 累加数值
                                     for (let i = 1; i < rowData.length; i++) {
-                                        groupData.data[existingIndex][i] += rowData[i];
+                                        const currentVal = groupData.data[existingIndex][i] || 0;
+                                        groupData.data[existingIndex][i] = currentVal + (rowData[i] || 0);
                                     }
                                 }
                             }
+                            
+                            processedRows++;
                         }
 
-                        log(`  文件 ${file.name}: 提取完成 (行${actualRowStart + 1}-${actualRowEnd + 1})`, 'info');
+                        log(`  文件 ${file.name}: 处理 ${processedRows} 行 (行${actualRowStart + 1}-${actualRowEnd + 1})`, 'info');
                     }
 
                     if (groupData.data.length > 0) {
                         const workbook = XLSX.utils.book_new();
 
                         // 1. 合并结果sheet
-                        const resultSheetData = [['参数', ...Array.from({length: groupData.data[0].length - 1}, (_, i) => `数据${i+1}`)]];
+                        const resultSheetData = [];
+                        
+                        // 创建表头
+                        const header = ['参数'];
+                        const dataColCount = groupData.data[0] ? groupData.data[0].length - 1 : 0;
+                        for (let i = 1; i <= dataColCount; i++) {
+                            header.push(`数据${i}`);
+                        }
+                        resultSheetData.push(header);
+                        
+                        // 添加数据
                         resultSheetData.push(...groupData.data);
+                        
                         const resultWorksheet = XLSX.utils.aoa_to_sheet(resultSheetData);
                         XLSX.utils.book_append_sheet(workbook, resultWorksheet, '合并结果');
 
-                        // 2. 计算明细sheet
-                        const detailSheetData = [['文件名', '行号', '参数', ...Array.from({length: groupData.data[0].length - 1}, (_, i) => `数据${i+1}`)]];
-                        
-                        for (const file of configuredFiles) {
-                            const fileConfig = group.fileConfigs[file.name];
-                            if (!fileConfig) continue;
+                        // 2. 计算明细sheet（可选）
+                        try {
+                            const detailSheetData = [['文件名', '行号', '参数', ...Array.from({length: dataColCount}, (_, i) => `数据${i+1}`)]];
+                            
+                            for (const file of configuredFiles) {
+                                const fileConfig = group.fileConfigs[file.name];
+                                if (!fileConfig) continue;
 
-                            const data = allData[file.name];
-                            if (!data || data.length === 0) continue;
+                                const data = allData[file.name];
+                                if (!data || data.length === 0) continue;
 
-                            const paramCol = fileConfig.paramCol;
-                            const paramRowStart = fileConfig.paramRowStart || 1;
-                            const paramRowEnd = fileConfig.paramRowEnd || (data.length - 1);
-                            const dataCols = fileConfig.dataCols;
-                            const dataRowStart = fileConfig.dataRowStart || 1;
-                            const dataRowEnd = fileConfig.dataRowEnd || (data.length - 1);
+                                const paramCol = fileConfig.paramCol;
+                                const paramRowStart = fileConfig.paramRowStart !== undefined ? fileConfig.paramRowStart : 1;
+                                const paramRowEnd = fileConfig.paramRowEnd !== undefined ? fileConfig.paramRowEnd : (data.length - 1);
+                                const dataCols = fileConfig.dataCols;
+                                const dataRowStart = fileConfig.dataRowStart !== undefined ? fileConfig.dataRowStart : 1;
+                                const dataRowEnd = fileConfig.dataRowEnd !== undefined ? fileConfig.dataRowEnd : (data.length - 1);
 
-                            const actualRowStart = Math.max(paramRowStart, dataRowStart);
-                            const actualRowEnd = Math.min(paramRowEnd, dataRowEnd);
+                                const actualRowStart = Math.max(paramRowStart, dataRowStart);
+                                const actualRowEnd = Math.min(paramRowEnd, dataRowEnd);
 
-                            for (let row = actualRowStart; row <= actualRowEnd; row++) {
-                                const paramCell = data[row][paramCol];
-                                if (!paramCell || String(paramCell).trim() === '') continue;
+                                for (let row = actualRowStart; row <= actualRowEnd; row++) {
+                                    if (row >= data.length) continue;
+                                    
+                                    const paramCell = data[row][paramCol];
+                                    if (paramCell === undefined || paramCell === null || String(paramCell).trim() === '') continue;
 
-                                const param = String(paramCell).trim();
-                                const rowData = [file.name, row + 1, param];
+                                    const param = String(paramCell).trim();
+                                    const rowData = [file.name, row + 1, param];
 
-                                for (const col of dataCols) {
-                                    const cell = data[row][col];
-                                    const value = cell && !isNaN(parseFloat(cell)) ? parseFloat(cell) : 0;
-                                    rowData.push(value);
+                                    for (const col of dataCols) {
+                                        let value = 0;
+                                        if (col < data[row].length) {
+                                            const cell = data[row][col];
+                                            if (cell !== undefined && cell !== null && cell !== '') {
+                                                const num = parseFloat(cell);
+                                                if (!isNaN(num)) {
+                                                    value = num;
+                                                }
+                                            }
+                                        }
+                                        rowData.push(value);
+                                    }
+
+                                    detailSheetData.push(rowData);
                                 }
-
-                                detailSheetData.push(rowData);
                             }
-                        }
 
-                        const detailWorksheet = XLSX.utils.aoa_to_sheet(detailSheetData);
-                        XLSX.utils.book_append_sheet(workbook, detailWorksheet, '计算明细');
+                            const detailWorksheet = XLSX.utils.aoa_to_sheet(detailSheetData);
+                            XLSX.utils.book_append_sheet(workbook, detailWorksheet, '计算明细');
+                        } catch (detailError) {
+                            log(`创建明细表失败: ${detailError.message}`, 'warning');
+                        }
 
                         // 生成Blob
                         const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
@@ -2449,6 +2537,7 @@
 
             } catch (error) {
                 log(`分组合并错误: ${error.message}`, 'error');
+                console.error('合并错误详情:', error);
                 updateStatus('处理失败', false);
             } finally {
                 setTimeout(() => {
