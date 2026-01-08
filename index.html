@@ -4,7 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Excel文件合并工具</title>
+    <!-- SheetJS for Excel parsing -->
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
+    
+    <!-- Handsontable for spreadsheet UI (optional, with fallback) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@12.3.1/dist/handsontable.full.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/handsontable@12.3.1/dist/handsontable.full.min.js"></script>
+    
     <style>
         * {
             box-sizing: border-box;
@@ -202,6 +208,19 @@
             background: #fadbd8;
         }
         
+        .file-item .config-btn {
+            color: #3498db;
+            cursor: pointer;
+            font-weight: bold;
+            padding: 0 8px;
+            border-radius: 4px;
+            margin-right: 8px;
+        }
+        
+        .file-item .config-btn:hover {
+            background: #e3f2fd;
+        }
+        
         .stats {
             display: flex;
             justify-content: space-between;
@@ -344,6 +363,407 @@
             font-weight: 600;
         }
         
+        /* 模式选择 */
+        .mode-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .mode-option {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.3s;
+            background: white;
+        }
+        
+        .mode-option:hover {
+            border-color: #3498db;
+            background: #f8f9fa;
+        }
+        
+        .mode-option.active {
+            border-color: #3498db;
+            background: #e3f2fd;
+            font-weight: 600;
+        }
+        
+        .mode-option .mode-title {
+            font-size: 16px;
+            margin-bottom: 5px;
+        }
+        
+        .mode-option .mode-desc {
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+        
+        /* 手动配置区域 */
+        .manual-config-section {
+            display: none;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .manual-config-section.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+        
+        .group-config {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .group-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .group-name-input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 200px;
+        }
+        
+        .selection-info {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-size: 13px;
+        }
+        
+        .handsontable-container {
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            overflow: hidden;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .selection-controls {
+            display: flex;
+            gap: 10px;
+            margin: 10px 0;
+            flex-wrap: wrap;
+        }
+        
+        .selection-status {
+            font-size: 13px;
+            color: #666;
+            padding: 5px 0;
+        }
+        
+        .file-config-status {
+            font-size: 12px;
+            color: #2ecc71;
+            margin-left: 8px;
+            font-weight: 600;
+        }
+        
+        .file-config-status.pending {
+            color: #f39c12;
+        }
+        
+        .manual-merge-section {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            padding: 15px;
+            margin-top: 15px;
+            display: none;
+        }
+        
+        .manual-merge-section.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+        
+        .group-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        .group-tag {
+            background: #3498db;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .group-tag .count {
+            background: rgba(255,255,255,0.3);
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+        
+        .merge-preview {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 13px;
+            font-family: 'Consolas', monospace;
+        }
+        
+        /* 选区高亮 */
+        .selection-highlight {
+            background-color: #fff3cd !important;
+            border: 2px solid #ffc107 !important;
+        }
+
+        /* 配置组列表 */
+        .config-group-item {
+            background: #e3f2fd;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .config-group-item .group-info {
+            flex: 1;
+        }
+        
+        .config-group-item .group-actions {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .config-group-item button {
+            padding: 4px 8px;
+            font-size: 12px;
+            border-radius: 3px;
+            border: none;
+            cursor: pointer;
+        }
+
+        /* 组名输入容器 */
+        .group-name-container {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .group-name-container input,
+        .group-name-container select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .group-name-container select {
+            flex: 1;
+            min-width: 150px;
+        }
+        
+        .group-name-container input[type="text"] {
+            flex: 1;
+            min-width: 150px;
+        }
+        
+        .group-name-container .new-group-toggle {
+            font-size: 12px;
+            color: #3498db;
+            cursor: pointer;
+            text-decoration: underline;
+            white-space: nowrap;
+        }
+        
+        .group-name-container .new-group-toggle:hover {
+            color: #2980b9;
+        }
+
+        /* 部分配置提示 */
+        .partial-config-info {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 13px;
+            color: #856404;
+        }
+
+        /* 分组下载区域 */
+        .group-download-section {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            padding: 15px;
+            margin-top: 15px;
+            display: none;
+        }
+        
+        .group-download-section.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+        
+        .group-download-item {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 8px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .group-download-info {
+            flex: 1;
+        }
+        
+        .group-download-info .group-name {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 4px;
+        }
+        
+        .group-download-info .group-stats {
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+        
+        .group-download-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* 空状态提示 */
+        .empty-state {
+            text-align: center;
+            padding: 20px;
+            color: #95a5a6;
+            font-size: 14px;
+        }
+
+        /* 选择范围提示 */
+        .selection-range-info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+            padding: 8px;
+            border-radius: 4px;
+            margin: 8px 0;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        /* 选择模式指示器 */
+        .selection-mode-indicator {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 6px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-block;
+            margin-left: 10px;
+        }
+
+        /* 手动输入模式（Handsontable备用） */
+        .manual-input-mode {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 12px;
+            border-radius: 6px;
+            margin: 10px 0;
+            display: none;
+        }
+        
+        .manual-input-mode.active {
+            display: block;
+        }
+        
+        .manual-input-group {
+            margin-bottom: 12px;
+        }
+        
+        .manual-input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .manual-input-group input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .manual-input-group .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 3px;
+        }
+
+        /* Handsontable错误提示 */
+        .handsontable-error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+            font-size: 13px;
+        }
+
+        .handsontable-error .retry-btn {
+            margin-top: 8px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .handsontable-error .retry-btn:hover {
+            background: #c82333;
+        }
+
         @media (max-width: 768px) {
             .controls {
                 flex-direction: column;
@@ -365,6 +785,32 @@
             .header h1 {
                 font-size: 22px;
             }
+            
+            .mode-selector {
+                flex-direction: column;
+            }
+            
+            .selection-controls {
+                flex-direction: column;
+            }
+            
+            .group-name-container {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .group-download-item {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .group-download-actions {
+                width: 100%;
+            }
+            
+            .group-download-actions .btn {
+                flex: 1;
+            }
         }
     </style>
 </head>
@@ -376,6 +822,23 @@
         </div>
         
         <div class="content">
+            <!-- 模式选择 -->
+            <div class="section">
+                <div class="section-title">
+                    <span>⚙️</span> 选择工作模式
+                </div>
+                <div class="mode-selector">
+                    <div class="mode-option active" data-mode="auto">
+                        <div class="mode-title">🚀 自动模式</div>
+                        <div class="mode-desc">智能识别并自动合并数据</div>
+                    </div>
+                    <div class="mode-option" data-mode="manual">
+                        <div class="mode-title">🔧 手动模式</div>
+                        <div class="mode-desc">手动选择列并分组合并</div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 文件选择区域 -->
             <div class="section">
                 <div class="section-title">
@@ -411,9 +874,56 @@
                     <span id="totalSize">总大小: 0 KB</span>
                 </div>
             </div>
-            
-            <!-- 输出设置区域 -->
-            <div class="section">
+
+            <!-- 手动配置区域 -->
+            <div id="manualConfigSection" class="manual-config-section">
+                <div class="section-title">
+                    <span>🔧</span> 手动配置
+                </div>
+                <div id="manualConfigContent">
+                    <p style="color: #7f8c8d; text-align: center; padding: 20px;">
+                        请先添加文件，然后为每个文件进行配置
+                    </p>
+                </div>
+            </div>
+
+            <!-- 手动合并区域 -->
+            <div id="manualMergeSection" class="manual-merge-section">
+                <div class="section-title">
+                    <span>🔄</span> 合并配置
+                </div>
+                <div>
+                    <div id="partialConfigInfo" class="partial-config-info" style="display: none;">
+                        💡 提示：您无需配置所有文件。合并时将只处理已配置的文件。
+                    </div>
+                    <div class="group-list" id="groupList">
+                        <!-- 动态生成组标签 -->
+                    </div>
+                    <div class="controls">
+                        <button id="startManualMergeBtn" class="btn btn-success" disabled>
+                            <span>⚡</span> 开始手动合并
+                        </button>
+                    </div>
+                    <div id="manualMergePreview" class="merge-preview" style="display: none; margin-top: 10px;">
+                        <!-- 合并预览 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 分组下载区域 -->
+            <div id="groupDownloadSection" class="group-download-section">
+                <div class="section-title">
+                    <span>📥</span> 下载分组结果
+                </div>
+                <div id="groupDownloadList">
+                    <div class="empty-state">
+                        暂无分组结果，请先运行合并
+                    </div>
+                </div>
+            </div>
+
+            <!-- 自动模式输出设置 -->
+            <div id="autoOutputSection" class="section">
                 <div class="section-title">
                     <span>📤</span> 输出设置
                 </div>
@@ -455,7 +965,7 @@
                 <span id="statusIndicator" class="status-indicator status-ready"></span>
                 <span id="statusText">就绪</span>
             </div>
-            <div id="supportInfo">Powered by SheetJS</div>
+            <div id="supportInfo">Powered by SheetJS & Handsontable</div>
         </div>
     </div>
 
@@ -463,14 +973,21 @@
     <input type="file" id="fileInput" accept=".xls,.xlsx" multiple style="display: none;">
 
     <script>
-        // 应用状态
+        // ==================== 应用状态 ====================
         const state = {
             files: [],
             isProcessing: false,
-            progress: 0
+            progress: 0,
+            mode: 'auto', // 'auto' 或 'manual'
+            manualConfig: {
+                groups: {},
+                fileData: {},
+                nextGroupIndex: 1
+            },
+            groupResults: {}
         };
 
-        // DOM元素
+        // ==================== DOM元素 ====================
         const elements = {
             fileInput: document.getElementById('fileInput'),
             addFilesBtn: document.getElementById('addFilesBtn'),
@@ -487,128 +1004,29 @@
             progressContainer: document.getElementById('progressContainer'),
             progressBar: document.getElementById('progressBar'),
             statusIndicator: document.getElementById('statusIndicator'),
-            statusText: document.getElementById('statusText')
+            statusText: document.getElementById('statusText'),
+            modeOptions: document.querySelectorAll('.mode-option'),
+            manualConfigSection: document.getElementById('manualConfigSection'),
+            manualConfigContent: document.getElementById('manualConfigContent'),
+            manualMergeSection: document.getElementById('manualMergeSection'),
+            startManualMergeBtn: document.getElementById('startManualMergeBtn'),
+            groupList: document.getElementById('groupList'),
+            manualMergePreview: document.getElementById('manualMergePreview'),
+            autoOutputSection: document.getElementById('autoOutputSection'),
+            partialConfigInfo: document.getElementById('partialConfigInfo'),
+            groupDownloadSection: document.getElementById('groupDownloadSection'),
+            groupDownloadList: document.getElementById('groupDownloadList')
         };
 
-        // 初始化事件监听器
-        function initEventListeners() {
-            elements.addFilesBtn.addEventListener('click', () => {
-                elements.fileInput.click();
-            });
-            
-            elements.fileInput.addEventListener('change', handleFileSelect);
-            
-            elements.addFolderBtn.addEventListener('click', () => {
-                log('浏览器安全限制，无法直接访问文件夹。请手动选择文件。', 'warning');
-            });
-            
-            elements.removeSelectedBtn.addEventListener('click', removeSelectedFiles);
-            elements.clearListBtn.addEventListener('click', clearFileList);
-            elements.startMergeBtn.addEventListener('click', startMergeProcess);
-            elements.downloadBtn.addEventListener('click', downloadMergedFile);
-        }
-
-        // 处理文件选择
-        function handleFileSelect(event) {
-            const newFiles = Array.from(event.target.files);
-            
-            // 过滤非Excel文件
-            const validFiles = newFiles.filter(file => {
-                const ext = file.name.split('.').pop().toLowerCase();
-                return ['xls', 'xlsx'].includes(ext);
-            });
-            
-            // 添加到文件列表（去重）
-            validFiles.forEach(file => {
-                if (!state.files.some(f => f.name === file.name && f.size === file.size)) {
-                    state.files.push(file);
-                }
-            });
-            
-            updateFileList();
-            log(`添加了 ${validFiles.length} 个Excel文件`, 'info');
-            
-            // 重置文件输入
-            elements.fileInput.value = '';
-        }
-
-        // 更新文件列表显示
-        function updateFileList() {
-            if (state.files.length === 0) {
-                elements.fileList.innerHTML = `
-                    <div style="text-align: center; color: #95a5a6; padding: 20px;">
-                        暂无文件，请点击上方按钮添加Excel文件
-                    </div>
-                `;
-                elements.fileCount.textContent = '已选择 0 个文件';
-                elements.totalSize.textContent = '总大小: 0 KB';
-                elements.startMergeBtn.disabled = true;
-                elements.downloadBtn.disabled = true;
-                return;
+        // ==================== 工具函数 ====================
+        
+        // 检查Handsontable是否加载成功
+        function checkHandsontableLoaded() {
+            if (typeof Handsontable === 'undefined') {
+                log('⚠️ Handsontable库加载失败，已启用备用手动输入模式', 'warning');
+                return false;
             }
-            
-            // 渲染文件列表
-            elements.fileList.innerHTML = '';
-            let totalSize = 0;
-            
-            state.files.forEach((file, index) => {
-                totalSize += file.size;
-                
-                const fileItem = document.createElement('div');
-                fileItem.className = 'file-item';
-                fileItem.innerHTML = `
-                    <span class="name">${file.name} (${formatFileSize(file.size)})</span>
-                    <span class="remove" data-index="${index}">✕</span>
-                `;
-                
-                fileItem.querySelector('.remove').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    removeFileByIndex(index);
-                });
-                
-                elements.fileList.appendChild(fileItem);
-            });
-            
-            // 更新统计信息
-            elements.fileCount.textContent = `已选择 ${state.files.length} 个文件`;
-            elements.totalSize.textContent = `总大小: ${formatFileSize(totalSize)}`;
-            elements.startMergeBtn.disabled = false;
-            
-            // 更新按钮状态
-            elements.downloadBtn.disabled = true;
-        }
-
-        // 移除选中的文件
-        function removeSelectedFiles() {
-            if (state.files.length === 0) {
-                log('没有文件可以移除', 'warning');
-                return;
-            }
-            
-            // 简单起见，这里移除最后一个文件（实际应用中可实现多选）
-            if (confirm('确定要移除所有文件吗？')) {
-                state.files = [];
-                updateFileList();
-                log('已清空所有文件', 'info');
-            }
-        }
-
-        // 按索引移除文件
-        function removeFileByIndex(index) {
-            const removed = state.files.splice(index, 1)[0];
-            updateFileList();
-            log(`已移除文件: ${removed.name}`, 'info');
-        }
-
-        // 清空文件列表
-        function clearFileList() {
-            if (state.files.length === 0) return;
-            
-            if (confirm('确定要清空所有文件吗？')) {
-                state.files = [];
-                updateFileList();
-                log('文件列表已清空', 'info');
-            }
+            return true;
         }
 
         // 格式化文件大小
@@ -649,7 +1067,1455 @@
             elements.progressBar.style.width = '0%';
         }
 
-        // 开始合并过程
+        // ==================== 事件监听器 ====================
+        
+        function initEventListeners() {
+            // 模式选择
+            elements.modeOptions.forEach(option => {
+                option.addEventListener('click', () => {
+                    const mode = option.dataset.mode;
+                    switchMode(mode);
+                });
+            });
+
+            // 文件操作
+            elements.addFilesBtn.addEventListener('click', () => {
+                elements.fileInput.click();
+            });
+            
+            elements.fileInput.addEventListener('change', handleFileSelect);
+            
+            elements.addFolderBtn.addEventListener('click', () => {
+                log('浏览器安全限制，无法直接访问文件夹。请手动选择文件。', 'warning');
+            });
+            
+            elements.removeSelectedBtn.addEventListener('click', removeSelectedFiles);
+            elements.clearListBtn.addEventListener('click', clearFileList);
+            elements.startMergeBtn.addEventListener('click', startMergeProcess);
+            elements.downloadBtn.addEventListener('click', downloadMergedFile);
+            elements.startManualMergeBtn.addEventListener('click', startManualMergeProcess);
+
+            // 事件委托：处理动态生成的按钮
+            document.addEventListener('click', function(e) {
+                // 删除组配置按钮
+                if (e.target.matches('.delete-group-btn')) {
+                    const fileName = e.target.dataset.file;
+                    const groupName = e.target.dataset.group;
+                    const modal = e.target.closest('.modal-container');
+                    removeGroupConfig(fileName, groupName, modal);
+                }
+                
+                // 保存配置按钮（在模态框中）
+                if (e.target.matches('#saveConfig')) {
+                    const modal = e.target.closest('.modal-container');
+                    if (modal) {
+                        const fileName = modal.dataset.fileName;
+                        saveFileConfig(fileName, modal);
+                    }
+                }
+
+                // 分组下载按钮
+                if (e.target.matches('.download-group-btn')) {
+                    const groupName = e.target.dataset.groupName;
+                    downloadGroupResult(groupName);
+                }
+
+                // 手动输入模式下的保存按钮
+                if (e.target.matches('#saveManualInput')) {
+                    const modal = e.target.closest('.modal-container');
+                    if (modal) {
+                        const fileName = modal.dataset.fileName;
+                        saveManualInputConfig(fileName, modal);
+                    }
+                }
+
+                // 重试Handsontable加载按钮
+                if (e.target.matches('#retryHandsontable')) {
+                    location.reload();
+                }
+            });
+        }
+
+        // ==================== 模式切换 ====================
+        
+        function switchMode(mode) {
+            state.mode = mode;
+            
+            // 更新UI状态
+            elements.modeOptions.forEach(opt => {
+                if (opt.dataset.mode === mode) {
+                    opt.classList.add('active');
+                } else {
+                    opt.classList.remove('active');
+                }
+            });
+
+            // 显示/隐藏相关区域
+            if (mode === 'auto') {
+                elements.manualConfigSection.classList.remove('active');
+                elements.manualMergeSection.classList.remove('active');
+                elements.groupDownloadSection.classList.remove('active');
+                elements.autoOutputSection.style.display = 'block';
+                elements.startMergeBtn.style.display = 'inline-flex';
+                log('切换到自动模式', 'info');
+            } else {
+                elements.manualConfigSection.classList.add('active');
+                elements.manualMergeSection.classList.add('active');
+                elements.autoOutputSection.style.display = 'none';
+                elements.startMergeBtn.style.display = 'none';
+                log('切换到手动模式', 'info');
+                
+                // 如果已经有文件，显示配置界面
+                if (state.files.length > 0) {
+                    renderManualConfig();
+                    renderGroupList();
+                }
+            }
+        }
+
+        // ==================== 文件处理 ====================
+        
+        function handleFileSelect(event) {
+            const newFiles = Array.from(event.target.files);
+            
+            // 过滤非Excel文件
+            const validFiles = newFiles.filter(file => {
+                const ext = file.name.split('.').pop().toLowerCase();
+                return ['xls', 'xlsx'].includes(ext);
+            });
+            
+            // 添加到文件列表（去重）
+            validFiles.forEach(file => {
+                if (!state.files.some(f => f.name === file.name && f.size === file.size)) {
+                    state.files.push(file);
+                    // 初始化手动配置数据
+                    if (state.mode === 'manual') {
+                        state.manualConfig.fileData[file.name] = {
+                            data: null,
+                            hotInstance: null,
+                            configured: false,
+                            lastSelection: null
+                        };
+                    }
+                }
+            });
+            
+            updateFileList();
+            log(`添加了 ${validFiles.length} 个Excel文件`, 'info');
+            
+            // 如果是手动模式，渲染配置界面
+            if (state.mode === 'manual' && validFiles.length > 0) {
+                renderManualConfig();
+                renderGroupList();
+            }
+            
+            // 重置文件输入
+            elements.fileInput.value = '';
+        }
+
+        function updateFileList() {
+            if (state.files.length === 0) {
+                elements.fileList.innerHTML = `
+                    <div style="text-align: center; color: #95a5a6; padding: 20px;">
+                        暂无文件，请点击上方按钮添加Excel文件
+                    </div>
+                `;
+                elements.fileCount.textContent = '已选择 0 个文件';
+                elements.totalSize.textContent = '总大小: 0 KB';
+                elements.startMergeBtn.disabled = true;
+                elements.downloadBtn.disabled = true;
+                elements.startManualMergeBtn.disabled = true;
+                return;
+            }
+            
+            // 渲染文件列表
+            elements.fileList.innerHTML = '';
+            let totalSize = 0;
+            
+            state.files.forEach((file, index) => {
+                totalSize += file.size;
+                
+                const fileItem = document.createElement('div');
+                fileItem.className = 'file-item';
+                
+                // 检查配置状态
+                const isConfigured = state.mode === 'manual' && 
+                    state.manualConfig.fileData[file.name] && 
+                    state.manualConfig.fileData[file.name].configured;
+                
+                const configStatus = isConfigured ? 
+                    '<span class="file-config-status">已配置</span>' : 
+                    state.mode === 'manual' ? '<span class="file-config-status pending">待配置</span>' : '';
+                
+                const configBtn = state.mode === 'manual' ? 
+                    `<span class="config-btn" data-index="${index}" data-action="config">⚙️ 配置</span>` : '';
+                
+                fileItem.innerHTML = `
+                    <span class="name">${file.name} (${formatFileSize(file.size)}) ${configStatus}</span>
+                    ${configBtn}
+                    <span class="remove" data-index="${index}">✕</span>
+                `;
+                
+                // 绑定事件
+                fileItem.querySelector('.remove').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    removeFileByIndex(index);
+                });
+                
+                if (state.mode === 'manual') {
+                    fileItem.querySelector('.config-btn').addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openConfigForFile(file.name);
+                    });
+                }
+                
+                elements.fileList.appendChild(fileItem);
+            });
+            
+            // 更新统计信息
+            elements.fileCount.textContent = `已选择 ${state.files.length} 个文件`;
+            elements.totalSize.textContent = `总大小: ${formatFileSize(totalSize)}`;
+            
+            // 更新按钮状态
+            if (state.mode === 'auto') {
+                elements.startMergeBtn.disabled = state.files.length === 0;
+                elements.downloadBtn.disabled = true;
+            } else {
+                // 手动模式：检查是否有已配置的文件
+                const hasConfiguredFiles = state.files.some(file => 
+                    state.manualConfig.fileData[file.name] && 
+                    state.manualConfig.fileData[file.name].configured
+                );
+                const hasGroups = Object.keys(state.manualConfig.groups).length > 0;
+                
+                elements.startManualMergeBtn.disabled = !hasConfiguredFiles || !hasGroups;
+                
+                // 显示部分配置提示
+                if (state.files.length > 0 && hasConfiguredFiles) {
+                    const allConfigured = state.files.every(file => 
+                        state.manualConfig.fileData[file.name] && 
+                        state.manualConfig.fileData[file.name].configured
+                    );
+                    if (!allConfigured) {
+                        elements.partialConfigInfo.style.display = 'block';
+                    } else {
+                        elements.partialConfigInfo.style.display = 'none';
+                    }
+                } else {
+                    elements.partialConfigInfo.style.display = 'none';
+                }
+            }
+        }
+
+        function removeSelectedFiles() {
+            if (state.files.length === 0) {
+                log('没有文件可以移除', 'warning');
+                return;
+            }
+            
+            if (confirm('确定要移除所有文件吗？')) {
+                // 清理手动配置数据
+                if (state.mode === 'manual') {
+                    state.manualConfig.fileData = {};
+                    Object.keys(state.manualConfig.groups).forEach(groupName => {
+                        const group = state.manualConfig.groups[groupName];
+                        state.files.forEach(file => {
+                            if (group.fileConfigs[file.name]) {
+                                delete group.fileConfigs[file.name];
+                            }
+                        });
+                    });
+                }
+                
+                state.files = [];
+                updateFileList();
+                if (state.mode === 'manual') {
+                    renderManualConfig();
+                    renderGroupList();
+                }
+                log('已清空所有文件', 'info');
+            }
+        }
+
+        function removeFileByIndex(index) {
+            const removed = state.files.splice(index, 1)[0];
+            
+            // 清理手动配置数据
+            if (state.mode === 'manual') {
+                if (state.manualConfig.fileData[removed.name]) {
+                    delete state.manualConfig.fileData[removed.name];
+                }
+                
+                Object.keys(state.manualConfig.groups).forEach(groupName => {
+                    const group = state.manualConfig.groups[groupName];
+                    if (group.fileConfigs[removed.name]) {
+                        delete group.fileConfigs[removed.name];
+                    }
+                });
+            }
+            
+            updateFileList();
+            if (state.mode === 'manual') {
+                renderManualConfig();
+                renderGroupList();
+            }
+            log(`已移除文件: ${removed.name}`, 'info');
+        }
+
+        function clearFileList() {
+            if (state.files.length === 0) return;
+            
+            if (confirm('确定要清空所有文件吗？')) {
+                // 清理手动配置数据
+                if (state.mode === 'manual') {
+                    state.manualConfig.fileData = {};
+                    state.manualConfig.groups = {};
+                    state.manualConfig.nextGroupIndex = 1;
+                    state.groupResults = {};
+                }
+                
+                state.files = [];
+                updateFileList();
+                if (state.mode === 'manual') {
+                    renderManualConfig();
+                    renderGroupList();
+                    renderGroupDownloadList();
+                }
+                log('文件列表已清空', 'info');
+            }
+        }
+
+        // ==================== 手动模式：配置界面 ====================
+        
+        function renderManualConfig() {
+            if (state.files.length === 0) {
+                elements.manualConfigContent.innerHTML = `
+                    <p style="color: #7f8c8d; text-align: center; padding: 20px;">
+                        请先添加文件，然后为每个文件进行配置
+                    </p>
+                `;
+                return;
+            }
+
+            let html = '';
+            state.files.forEach((file, index) => {
+                const fileData = state.manualConfig.fileData[file.name];
+                const isConfigured = fileData && fileData.configured;
+                
+                html += `
+                    <div class="group-config" data-file="${file.name}">
+                        <div class="group-header">
+                            <strong>文件 ${index + 1}: ${file.name}</strong>
+                            ${isConfigured ? 
+                                '<span style="color: #2ecc71; font-weight: 600;">✓ 已配置</span>' : 
+                                '<span style="color: #f39c12; font-weight: 600;">⚙️ 待配置</span>'}
+                        </div>
+                        <div id="config-${file.name.replace(/[^a-zA-Z0-9]/g, '_')}">
+                            ${isConfigured ? 
+                                `<div class="selection-info">已配置 ${Object.keys(getFileConfigurations(file.name)).length} 组映射关系</div>
+                                <button class="btn btn-secondary" onclick="openConfigForFile('${file.name}')">重新配置</button>` :
+                                `<button class="btn btn-primary" onclick="openConfigForFile('${file.name}')">开始配置</button>`
+                            }
+                        </div>
+                    </div>
+                `;
+            });
+            
+            elements.manualConfigContent.innerHTML = html;
+        }
+
+        // 打开文件配置模态框
+        window.openConfigForFile = function(fileName) {
+            const file = state.files.find(f => f.name === fileName);
+            if (!file) {
+                log('文件未找到', 'error');
+                return;
+            }
+
+            // 检查Handsontable是否可用
+            const handsontableLoaded = checkHandsontableLoaded();
+
+            // 创建配置模态框
+            const modal = document.createElement('div');
+            modal.className = 'modal-container';
+            modal.dataset.fileName = fileName;
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.5);
+                z-index: 1000;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                padding: 20px;
+            `;
+
+            modal.innerHTML = `
+                <div style="background: white; border-radius: 12px; width: 100%; max-width: 1000px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <div style="background: #2c3e50; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0;">配置文件: ${fileName}</h3>
+                        <button id="closeModal" style="background: #e74c3c; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer;">✕ 关闭</button>
+                    </div>
+                    <div style="padding: 20px; overflow-y: auto; flex: 1;">
+                        <div id="modalContent"></div>
+                    </div>
+                    <div style="padding: 15px 20px; background: #f8f9fa; border-top: 1px solid #e9ecef; display: flex; justify-content: space-between; align-items: center;">
+                        <div id="selectionSummary" style="font-size: 14px; color: #666;"></div>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="addNewGroup" class="btn btn-primary">➕ 新建组</button>
+                            <button id="saveConfig" class="btn btn-success" disabled>💾 保存配置</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // 关闭模态框
+            modal.querySelector('#closeModal').addEventListener('click', () => {
+                document.body.removeChild(modal);
+            });
+
+            // 初始化配置内容
+            if (handsontableLoaded) {
+                initFileConfiguration(file, modal);
+            } else {
+                initManualInputConfiguration(file, modal);
+            }
+        };
+
+        // ==================== Handsontable正常情况下的配置 ====================
+        
+        function initFileConfiguration(file, modal) {
+            const modalContent = modal.querySelector('#modalContent');
+            const addGroupBtn = modal.querySelector('#addNewGroup');
+            const selectionSummary = modal.querySelector('#selectionSummary');
+            
+            // 保存按钮的引用管理器
+            const saveBtnManager = {
+                element: null,
+                update: function() {
+                    this.element = modal.querySelector('#saveConfig');
+                    return this.element;
+                },
+                get: function() {
+                    return this.element || this.update();
+                },
+                setEnabled: function(enabled, onClick) {
+                    const btn = this.get();
+                    if (btn) {
+                        btn.disabled = !enabled;
+                        btn.onclick = enabled ? onClick : null;
+                    }
+                }
+            };
+
+            // 检查并更新保存按钮状态
+            function updateSaveButtonState() {
+                const existingConfigs = getFileConfigurations(file.name);
+                const hasConfigs = Object.keys(existingConfigs).length > 0;
+                
+                saveBtnManager.setEnabled(hasConfigs, () => {
+                    state.manualConfig.fileData[file.name].configured = true;
+                    updateFileList();
+                    renderManualConfig();
+                    renderGroupList();
+                    log(`文件 ${file.name} 配置完成`, 'success');
+                    document.body.removeChild(modal);
+                });
+            }
+
+            function renderConfigUI() {
+                const fileData = state.manualConfig.fileData[file.name];
+                const existingConfigs = getFileConfigurations(file.name);
+                
+                saveBtnManager.update();
+                updateSaveButtonState();
+
+                modalContent.innerHTML = `
+                    <div style="margin-bottom: 15px;">
+                        <p style="margin-bottom: 10px;"><strong>步骤说明：</strong></p>
+                        <ol style="margin-left: 20px; color: #666; font-size: 14px;">
+                            <li>点击"新建组"创建映射关系组</li>
+                            <li><strong>在表格中选择参数名列（可以框选整列或部分单元格）</strong></li>
+                            <li><strong>再选择数据列（可以框选整列、多列或部分单元格）</strong></li>
+                            <li>为组命名并保存</li>
+                            <li>可以创建多个组，最后保存所有配置</li>
+                        </ol>
+                        <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 8px; border-radius: 4px; margin-top: 10px; font-size: 13px;">
+                            💡 <strong>操作提示：</strong> 
+                            <br>• <strong>框选单元格：</strong> 按住鼠标左键拖动选择任意范围
+                            <br>• <strong>选择整列：</strong> 点击列标题选择整列
+                            <br>• <strong>选择多列：</strong> 拖动选择多列
+                            <br>• <strong>选区会高亮显示</strong>，点击按钮即可设置
+                        </div>
+                    </div>
+                    <div id="groupsContainer"></div>
+                    <div class="handsontable-container" id="hotContainer"></div>
+                `;
+
+                // 显示现有配置
+                const groupsContainer = modalContent.querySelector('#groupsContainer');
+                if (Object.keys(existingConfigs).length > 0) {
+                    groupsContainer.innerHTML = '<h4 style="margin: 10px 0;">现有配置：</h4>';
+                    Object.keys(existingConfigs).forEach(groupName => {
+                        const config = existingConfigs[groupName];
+                        const paramRange = config.paramRowStart !== undefined ? 
+                            ` (行${config.paramRowStart + 1}-${config.paramRowEnd + 1})` : '';
+                        const dataRange = config.dataRowStart !== undefined ? 
+                            ` (行${config.dataRowStart + 1}-${config.dataRowEnd + 1})` : '';
+                        
+                        groupsContainer.innerHTML += `
+                            <div class="config-group-item">
+                                <div class="group-info">
+                                    <strong>${groupName}</strong>: 
+                                    参数列: ${config.paramCol + 1}${paramRange}, 
+                                    数据列: ${config.dataCols.map(c => c + 1).join(', ')}${dataRange}
+                                </div>
+                                <div class="group-actions">
+                                    <button class="delete-group-btn btn-danger" data-file="${file.name}" data-group="${groupName}">删除</button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+
+                // 渲染Handsontable
+                const container = modalContent.querySelector('#hotContainer');
+                const hot = new Handsontable(container, {
+                    data: fileData.data,
+                    rowHeaders: true,
+                    colHeaders: true,
+                    height: '400px',
+                    width: '100%',
+                    licenseKey: 'non-commercial-and-evaluation',
+                    selectionMode: 'multiple',
+                    manualColumnResize: true,
+                    manualRowResize: true,
+                    highlightSelection: true,
+                    contextMenu: true,
+                    readOnly: true,
+                    afterSelectionEnd: function(r1, c1, r2, c2) {
+                        const selection = hot.getSelected();
+                        if (selection && selection.length > 0) {
+                            fileData.lastSelection = selection;
+                            updateSelectionStatus(selection);
+                        }
+                    }
+                });
+
+                fileData.hotInstance = hot;
+
+                // 临时存储当前选择的组配置
+                let currentGroupConfig = {
+                    name: '',
+                    paramCol: null,
+                    paramRowStart: null,
+                    paramRowEnd: null,
+                    dataCols: [],
+                    dataRowStart: null,
+                    dataRowEnd: null
+                };
+
+                // 更新选区状态显示
+                function updateSelectionStatus(selection) {
+                    if (!selection || selection.length === 0) return;
+                    
+                    const cols = new Set();
+                    const rows = new Set();
+                    
+                    selection.forEach(([r1, c1, r2, c2]) => {
+                        const minRow = Math.min(r1, r2);
+                        const maxRow = Math.max(r1, r2);
+                        const minCol = Math.min(c1, c2);
+                        const maxCol = Math.max(c1, c2);
+                        
+                        for (let r = minRow; r <= maxRow; r++) rows.add(r);
+                        for (let c = minCol; c <= maxCol; c++) cols.add(c);
+                    });
+                    
+                    const colList = Array.from(cols).map(c => c + 1).join(', ');
+                    const rowList = Array.from(rows).sort((a, b) => a - b);
+                    const rowRange = rowList.length > 0 ? `行${rowList[0] + 1}-${rowList[rowList.length - 1] + 1}` : '';
+                    const selectionType = rowList.length === (fileData.data.length - 1) ? '（整列）' : '（部分单元格）';
+                    
+                    selectionSummary.innerHTML = `当前选区: ${colList}列, ${rowRange} ${selectionType} | <strong>请根据需要点击按钮设置</strong>`;
+                }
+
+                // 新建组按钮
+                addGroupBtn.addEventListener('click', () => {
+                    // 重置当前配置
+                    currentGroupConfig = {
+                        name: `组${state.manualConfig.nextGroupIndex}`,
+                        paramCol: null,
+                        paramRowStart: null,
+                        paramRowEnd: null,
+                        dataCols: [],
+                        dataRowStart: null,
+                        dataRowEnd: null
+                    };
+
+                    // 创建组配置UI
+                    const groupConfigDiv = document.createElement('div');
+                    groupConfigDiv.style.cssText = 'background: #fff3cd; border: 1px solid #ffeaa7; padding: 12px; margin: 10px 0; border-radius: 6px;';
+
+                    // 检查是否有已存在的组名
+                    const existingGroupNames = Object.keys(state.manualConfig.groups);
+                    let groupNameHTML = '';
+
+                    if (existingGroupNames.length > 0) {
+                        groupNameHTML = `
+                            <div class="group-name-container">
+                                <select id="groupSelect" class="group-name-input">
+                                    <option value="">-- 选择已有组或新建 --</option>
+                                    ${existingGroupNames.map(name => `<option value="${name}">${name}</option>`).join('')}
+                                </select>
+                                <input type="text" id="groupName" class="group-name-input" value="${currentGroupConfig.name}" placeholder="输入新组名" style="display: none;">
+                                <span class="new-group-toggle" id="toggleNewGroup">或新建组</span>
+                            </div>
+                        `;
+                    } else {
+                        groupNameHTML = `
+                            <div class="group-name-container">
+                                <input type="text" id="groupName" class="group-name-input" value="${currentGroupConfig.name}" placeholder="输入组名">
+                            </div>
+                        `;
+                    }
+
+                    groupConfigDiv.innerHTML = `
+                        ${groupNameHTML}
+                        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap;">
+                            <button class="btn btn-primary" id="setParamCol">
+                                ✓ 设为参数列
+                                <span id="paramSelectionInfo" class="selection-mode-indicator" style="display: none;"></span>
+                            </button>
+                            <button class="btn btn-success" id="setDataCols">
+                                ✓ 设为数据列
+                                <span id="dataSelectionInfo" class="selection-mode-indicator" style="display: none;"></span>
+                            </button>
+                            <button class="btn btn-secondary" id="saveThisGroup">💾 保存本组</button>
+                            <button class="btn btn-danger" id="cancelGroup">取消</button>
+                        </div>
+                        <div id="selectionRangeInfo" class="selection-range-info" style="display: none;"></div>
+                        <div style="font-size: 12px; color: #666;">
+                            状态: <span id="currentSelectionInfo">等待选择...</span>
+                        </div>
+                    `;
+
+                    modalContent.insertBefore(groupConfigDiv, modalContent.querySelector('#hotContainer'));
+
+                    // 组名选择/输入逻辑
+                    const groupSelect = groupConfigDiv.querySelector('#groupSelect');
+                    const groupNameInput = groupConfigDiv.querySelector('#groupName');
+                    const toggleNewGroup = groupConfigDiv.querySelector('#toggleNewGroup');
+
+                    if (groupSelect && toggleNewGroup) {
+                        groupSelect.addEventListener('change', (e) => {
+                            if (e.target.value) {
+                                currentGroupConfig.name = e.target.value;
+                                groupNameInput.style.display = 'none';
+                                toggleNewGroup.style.display = 'inline';
+                                toggleNewGroup.textContent = '切换为新建组';
+                                log(`已选择组: ${e.target.value}`, 'info');
+                            } else {
+                                groupNameInput.style.display = 'inline';
+                                groupNameInput.focus();
+                                toggleNewGroup.style.display = 'none';
+                            }
+                        });
+
+                        toggleNewGroup.addEventListener('click', () => {
+                            if (groupNameInput.style.display === 'none') {
+                                groupNameInput.style.display = 'inline';
+                                groupNameInput.focus();
+                                groupSelect.style.display = 'none';
+                                toggleNewGroup.textContent = '切换为选择组';
+                            } else {
+                                groupNameInput.style.display = 'none';
+                                groupSelect.style.display = 'inline';
+                                toggleNewGroup.textContent = '或新建组';
+                            }
+                        });
+
+                        groupNameInput.addEventListener('input', (e) => {
+                            currentGroupConfig.name = e.target.value;
+                        });
+                    } else if (groupNameInput) {
+                        groupNameInput.addEventListener('input', (e) => {
+                            currentGroupConfig.name = e.target.value;
+                        });
+                    }
+
+                    // 设置参数列按钮
+                    groupConfigDiv.querySelector('#setParamCol').addEventListener('click', () => {
+                        let selection = fileData.lastSelection;
+                        if (!selection || selection.length === 0) {
+                            selection = hot.getSelected();
+                        }
+
+                        if (!selection || selection.length === 0) {
+                            alert('请先在表格中选择参数列\n\n操作方法：\n1. 用鼠标左键拖动选择任意范围\n2. 选区会高亮显示\n3. 然后点击"设为参数列"按钮');
+                            return;
+                        }
+
+                        // 获取选区范围
+                        const rows = new Set();
+                        const cols = new Set();
+                        selection.forEach(([r1, c1, r2, c2]) => {
+                            const minRow = Math.min(r1, r2);
+                            const maxRow = Math.max(r1, r2);
+                            const minCol = Math.min(c1, c2);
+                            const maxCol = Math.max(c1, c2);
+                            
+                            for (let r = minRow; r <= maxRow; r++) rows.add(r);
+                            for (let c = minCol; c <= maxCol; c++) cols.add(c);
+                        });
+
+                        if (cols.size > 1) {
+                            alert('参数列只能选择1列！');
+                            return;
+                        }
+
+                        const selectedCol = Math.min(...cols);
+                        const rowArray = Array.from(rows).sort((a, b) => a - b);
+                        const isFullColumn = rowArray.length === (fileData.data.length - 1);
+
+                        currentGroupConfig.paramCol = selectedCol;
+                        currentGroupConfig.paramRowStart = isFullColumn ? 1 : rowArray[0];
+                        currentGroupConfig.paramRowEnd = isFullColumn ? fileData.data.length - 1 : rowArray[rowArray.length - 1];
+
+                        const selectionType = isFullColumn ? '整列' : `部分单元格 (行${currentGroupConfig.paramRowStart + 1}-${currentGroupConfig.paramRowEnd + 1})`;
+                        log(`已设置参数列: 第${selectedCol + 1}列 - ${selectionType}`, 'success');
+                        
+                        const infoDiv = groupConfigDiv.querySelector('#currentSelectionInfo');
+                        infoDiv.innerHTML = `<span style="color: #2ecc71;">✓ 参数列: 第${selectedCol + 1}列 (${selectionType})</span>`;
+
+                        const paramIndicator = groupConfigDiv.querySelector('#paramSelectionInfo');
+                        paramIndicator.textContent = isFullColumn ? '整列' : '部分';
+                        paramIndicator.style.display = 'inline-block';
+
+                        updateRangeInfo();
+                    });
+
+                    // 设置数据列按钮
+                    groupConfigDiv.querySelector('#setDataCols').addEventListener('click', () => {
+                        let selection = fileData.lastSelection;
+                        if (!selection || selection.length === 0) {
+                            selection = hot.getSelected();
+                        }
+
+                        if (!selection || selection.length === 0) {
+                            alert('请先在表格中选择数据列\n\n操作方法：\n1. 用鼠标左键拖动选择任意范围\n2. 选区会高亮显示\n3. 然后点击"设为数据列"按钮');
+                            return;
+                        }
+
+                        // 获取选区范围
+                        const rows = new Set();
+                        const cols = new Set();
+                        selection.forEach(([r1, c1, r2, c2]) => {
+                            const minRow = Math.min(r1, r2);
+                            const maxRow = Math.max(r1, r2);
+                            const minCol = Math.min(c1, c2);
+                            const maxCol = Math.max(c1, c2);
+                            
+                            for (let r = minRow; r <= maxRow; r++) rows.add(r);
+                            for (let c = minCol; c <= maxCol; c++) cols.add(c);
+                        });
+
+                        const selectedCols = Array.from(cols);
+                        const rowArray = Array.from(rows).sort((a, b) => a - b);
+                        const isFullColumn = rowArray.length === (fileData.data.length - 1);
+
+                        currentGroupConfig.dataCols = selectedCols;
+                        currentGroupConfig.dataRowStart = isFullColumn ? 1 : rowArray[0];
+                        currentGroupConfig.dataRowEnd = isFullColumn ? fileData.data.length - 1 : rowArray[rowArray.length - 1];
+
+                        const selectionType = isFullColumn ? '整列' : `部分单元格 (行${currentGroupConfig.dataRowStart + 1}-${currentGroupConfig.dataRowEnd + 1})`;
+                        const colText = selectedCols.length === 1 ? `第${selectedCols[0] + 1}列` : `${selectedCols.map(c => c + 1).join(', ')}列`;
+                        log(`已设置数据列: ${colText} - ${selectionType}`, 'success');
+                        
+                        const infoDiv = groupConfigDiv.querySelector('#currentSelectionInfo');
+                        const existingText = infoDiv.innerHTML.includes('参数列') ? infoDiv.innerHTML + ' | ' : '';
+                        infoDiv.innerHTML = `${existingText}<span style="color: #2ecc71;">✓ 数据列: ${colText} (${selectionType})</span>`;
+
+                        const dataIndicator = groupConfigDiv.querySelector('#dataSelectionInfo');
+                        dataIndicator.textContent = isFullColumn ? '整列' : '部分';
+                        dataIndicator.style.display = 'inline-block';
+
+                        updateRangeInfo();
+                    });
+
+                    // 更新选择范围信息显示
+                    function updateRangeInfo() {
+                        const rangeInfoDiv = groupConfigDiv.querySelector('#selectionRangeInfo');
+                        if (currentGroupConfig.paramCol !== null && currentGroupConfig.dataCols.length > 0) {
+                            const paramRange = currentGroupConfig.paramRowStart !== null ? 
+                                `参数行: ${currentGroupConfig.paramRowStart + 1}-${currentGroupConfig.paramRowEnd + 1}` : '参数行: 整列';
+                            const dataRange = currentGroupConfig.dataRowStart !== null ? 
+                                `数据行: ${currentGroupConfig.dataRowStart + 1}-${currentGroupConfig.dataRowEnd + 1}` : '数据行: 整列';
+                            
+                            rangeInfoDiv.innerHTML = `📐 选择范围: ${paramRange} | ${dataRange}`;
+                            rangeInfoDiv.style.display = 'block';
+                        }
+                    }
+
+                    // 保存本组按钮
+                    groupConfigDiv.querySelector('#saveThisGroup').addEventListener('click', () => {
+                        if (!currentGroupConfig.name) {
+                            alert('请输入组名');
+                            return;
+                        }
+                        if (currentGroupConfig.paramCol === null) {
+                            alert('请设置参数列');
+                            return;
+                        }
+                        if (currentGroupConfig.dataCols.length === 0) {
+                            alert('请设置数据列');
+                            return;
+                        }
+
+                        // 保存到状态
+                        if (!state.manualConfig.groups[currentGroupConfig.name]) {
+                            state.manualConfig.groups[currentGroupConfig.name] = {
+                                fileConfigs: {}
+                            };
+                            state.manualConfig.nextGroupIndex++;
+                        }
+
+                        state.manualConfig.groups[currentGroupConfig.name].fileConfigs[file.name] = {
+                            paramCol: currentGroupConfig.paramCol,
+                            paramRowStart: currentGroupConfig.paramRowStart,
+                            paramRowEnd: currentGroupConfig.paramRowEnd,
+                            dataCols: [...currentGroupConfig.dataCols],
+                            dataRowStart: currentGroupConfig.dataRowStart,
+                            dataRowEnd: currentGroupConfig.dataRowEnd
+                        };
+
+                        log(`已保存组配置: ${currentGroupConfig.name} - 文件: ${file.name}`, 'success');
+                        
+                        // 重新渲染配置界面
+                        renderConfigUI();
+                        
+                        // 重新渲染组列表
+                        renderGroupList();
+
+                        // 立即检查并启用保存按钮
+                        updateSaveButtonState();
+                    });
+
+                    // 取消按钮
+                    groupConfigDiv.querySelector('#cancelGroup').addEventListener('click', () => {
+                        groupConfigDiv.remove();
+                    });
+                });
+            }
+
+            // 如果还没有读取文件数据，先读取
+            if (!state.manualConfig.fileData[file.name] || !state.manualConfig.fileData[file.name].data) {
+                readFileData(file).then(data => {
+                    state.manualConfig.fileData[file.name] = {
+                        data: data,
+                        hotInstance: null,
+                        configured: false,
+                        lastSelection: null
+                    };
+                    renderConfigUI();
+                }).catch(err => {
+                    log(`读取文件失败: ${err.message}`, 'error');
+                    modalContent.innerHTML = `<div style="color: #e74c3c;">读取文件失败: ${err.message}</div>`;
+                });
+            } else {
+                renderConfigUI();
+            }
+        }
+
+        // ==================== Handsontable备用方案：手动输入 ====================
+        
+        function initManualInputConfiguration(file, modal) {
+            const modalContent = modal.querySelector('#modalContent');
+            const addGroupBtn = modal.querySelector('#addNewGroup');
+            const selectionSummary = modal.querySelector('#selectionSummary');
+            
+            // 隐藏原按钮，显示提示
+            addGroupBtn.style.display = 'none';
+            selectionSummary.innerHTML = 'Handsontable库加载失败，已切换到手动输入模式';
+            
+            // 显示错误提示和重试按钮
+            modalContent.innerHTML = `
+                <div class="handsontable-error">
+                    <strong>⚠️ 无法加载表格预览组件</strong>
+                    <p>原因可能是：</p>
+                    <ul style="margin-left: 20px; margin-top: 5px;">
+                        <li>网络连接问题</li>
+                        <li>防火墙阻止了CDN</li>
+                        <li>浏览器安全设置</li>
+                    </ul>
+                    <p style="margin-top: 10px;"><strong>解决方案：</strong></p>
+                    <ol style="margin-left: 20px; margin-top: 5px;">
+                        <li>点击"重试"按钮重新加载</li>
+                        <li>或使用手动输入模式（在下方输入列号）</li>
+                    </ol>
+                    <button id="retryHandsontable" class="retry-btn">🔄 重试加载</button>
+                </div>
+
+                <div class="manual-input-mode active">
+                    <h4 style="margin: 10px 0;">手动输入配置</h4>
+                    <div class="manual-input-group">
+                        <label>组名：</label>
+                        <input type="text" id="manualGroupName" value="组${state.manualConfig.nextGroupIndex}" placeholder="输入组名">
+                    </div>
+                    <div class="manual-input-group">
+                        <label>参数列号：</label>
+                        <input type="number" id="manualParamCol" placeholder="例如: 1">
+                        <div class="help-text">从1开始，只能输入1个数字</div>
+                    </div>
+                    <div class="manual-input-group">
+                        <label>参数行范围（可选）：</label>
+                        <div style="display: flex; gap: 5px;">
+                            <input type="number" id="manualParamRowStart" placeholder="起始行" style="width: 50%;">
+                            <input type="number" id="manualParamRowEnd" placeholder="结束行" style="width: 50%;">
+                        </div>
+                        <div class="help-text">不填则处理所有行</div>
+                    </div>
+                    <div class="manual-input-group">
+                        <label>数据列号：</label>
+                        <input type="text" id="manualDataCols" placeholder="例如: 2,3,4">
+                        <div class="help-text">多个列用逗号分隔，如: 2,3,4</div>
+                    </div>
+                    <div class="manual-input-group">
+                        <label>数据行范围（可选）：</label>
+                        <div style="display: flex; gap: 5px;">
+                            <input type="number" id="manualDataRowStart" placeholder="起始行" style="width: 50%;">
+                            <input type="number" id="manualDataRowEnd" placeholder="结束行" style="width: 50%;">
+                        </div>
+                        <div class="help-text">不填则处理所有行</div>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <button id="saveManualInput" class="btn btn-success">
+                            <span>💾</span> 保存配置
+                        </button>
+                    </div>
+                    <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; margin-top: 10px; font-size: 12px;">
+                        <strong>提示：</strong> 请查看Excel文件，确定列号和行号。标题行通常是第1行，数据从第2行开始。
+                    </div>
+                </div>
+            `;
+
+            // 保存手动输入配置
+            window.saveManualInputConfig = function(fileName, modal) {
+                const groupName = document.getElementById('manualGroupName').value.trim();
+                const paramCol = parseInt(document.getElementById('manualParamCol').value);
+                const paramRowStart = document.getElementById('manualParamRowStart').value;
+                const paramRowEnd = document.getElementById('manualParamRowEnd').value;
+                const dataColsStr = document.getElementById('manualDataCols').value.trim();
+                const dataRowStart = document.getElementById('manualDataRowStart').value;
+                const dataRowEnd = document.getElementById('manualDataRowEnd').value;
+
+                // 验证输入
+                if (!groupName) {
+                    alert('请输入组名');
+                    return;
+                }
+                if (isNaN(paramCol) || paramCol < 1) {
+                    alert('请输入有效的参数列号（从1开始）');
+                    return;
+                }
+                if (!dataColsStr) {
+                    alert('请输入数据列号');
+                    return;
+                }
+
+                // 解析数据列
+                const dataCols = dataColsStr.split(',').map(s => parseInt(s.trim()) - 1).filter(n => !isNaN(n) && n >= 0);
+                if (dataCols.length === 0) {
+                    alert('数据列号格式错误，请输入数字并用逗号分隔');
+                    return;
+                }
+
+                // 保存配置
+                if (!state.manualConfig.groups[groupName]) {
+                    state.manualConfig.groups[groupName] = {
+                        fileConfigs: {}
+                    };
+                    state.manualConfig.nextGroupIndex++;
+                }
+
+                state.manualConfig.groups[groupName].fileConfigs[fileName] = {
+                    paramCol: paramCol - 1,
+                    paramRowStart: paramRowStart ? parseInt(paramRowStart) - 1 : undefined,
+                    paramRowEnd: paramRowEnd ? parseInt(paramRowEnd) - 1 : undefined,
+                    dataCols: dataCols,
+                    dataRowStart: dataRowStart ? parseInt(dataRowStart) - 1 : undefined,
+                    dataRowEnd: dataRowEnd ? parseInt(dataRowEnd) - 1 : undefined
+                };
+
+                // 标记文件为已配置
+                if (state.manualConfig.fileData[fileName]) {
+                    state.manualConfig.fileData[fileName].configured = true;
+                } else {
+                    state.manualConfig.fileData[fileName] = {
+                        data: null,
+                        hotInstance: null,
+                        configured: true,
+                        lastSelection: null
+                    };
+                }
+
+                log(`已保存手动配置: ${groupName} - 文件: ${fileName}`, 'success');
+                
+                // 更新界面
+                updateFileList();
+                renderManualConfig();
+                renderGroupList();
+
+                // 关闭模态框
+                if (modal && modal.parentNode) {
+                    document.body.removeChild(modal);
+                }
+            };
+        }
+
+        // ==================== 配置管理 ====================
+        
+        function saveFileConfig(fileName, modal) {
+            const fileData = state.manualConfig.fileData[fileName];
+            if (!fileData) {
+                log('文件数据未找到', 'error');
+                return;
+            }
+
+            const hasConfigs = Object.keys(getFileConfigurations(fileName)).length > 0;
+            if (!hasConfigs) {
+                alert('请先创建并保存至少一个组配置');
+                return;
+            }
+
+            fileData.configured = true;
+            updateFileList();
+            renderManualConfig();
+            renderGroupList();
+            log(`文件 ${fileName} 配置完成`, 'success');
+            
+            // 关闭模态框
+            if (modal && modal.parentNode) {
+                document.body.removeChild(modal);
+            }
+        }
+
+        function readFileData(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        
+                        // 转换为二维数组
+                        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+                        
+                        if (jsonData.length === 0) {
+                            reject(new Error('表格为空'));
+                            return;
+                        }
+                        
+                        resolve(jsonData);
+                    } catch (err) {
+                        reject(err);
+                    }
+                };
+                reader.onerror = () => reject(new Error('读取文件失败'));
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        function getFileConfigurations(fileName) {
+            const configs = {};
+            Object.keys(state.manualConfig.groups).forEach(groupName => {
+                const group = state.manualConfig.groups[groupName];
+                if (group.fileConfigs[fileName]) {
+                    configs[groupName] = group.fileConfigs[fileName];
+                }
+            });
+            return configs;
+        }
+
+        function removeGroupConfig(fileName, groupName, modal) {
+            if (state.manualConfig.groups[groupName]) {
+                delete state.manualConfig.groups[groupName].fileConfigs[fileName];
+                
+                if (Object.keys(state.manualConfig.groups[groupName].fileConfigs).length === 0) {
+                    delete state.manualConfig.groups[groupName];
+                }
+                
+                const remainingConfigs = getFileConfigurations(fileName);
+                if (Object.keys(remainingConfigs).length === 0) {
+                    if (state.manualConfig.fileData[fileName]) {
+                        state.manualConfig.fileData[fileName].configured = false;
+                    }
+                }
+                
+                log(`已删除组配置: ${groupName} - 文件: ${fileName}`, 'info');
+                
+                if (modal) {
+                    const modalContent = modal.querySelector('#modalContent');
+                    if (modalContent) {
+                        const existingConfigs = getFileConfigurations(fileName);
+                        const groupsContainer = modalContent.querySelector('#groupsContainer');
+                        
+                        if (groupsContainer) {
+                            if (Object.keys(existingConfigs).length > 0) {
+                                let html = '<h4 style="margin: 10px 0;">现有配置：</h4>';
+                                Object.keys(existingConfigs).forEach(groupName => {
+                                    const config = existingConfigs[groupName];
+                                    const paramRange = config.paramRowStart !== undefined ? 
+                                        ` (行${config.paramRowStart + 1}-${config.paramRowEnd + 1})` : '';
+                                    const dataRange = config.dataRowStart !== undefined ? 
+                                        ` (行${config.dataRowStart + 1}-${config.dataRowEnd + 1})` : '';
+                                    
+                                    html += `
+                                        <div class="config-group-item">
+                                            <div class="group-info">
+                                                <strong>${groupName}</strong>: 
+                                                参数列: ${config.paramCol + 1}${paramRange}, 
+                                                数据列: ${config.dataCols.map(c => c + 1).join(', ')}${dataRange}
+                                            </div>
+                                            <div class="group-actions">
+                                                <button class="delete-group-btn btn-danger" data-file="${fileName}" data-group="${groupName}">删除</button>
+                                            </div>
+                                        </div>
+                                    `;
+                                });
+                                groupsContainer.innerHTML = html;
+                            } else {
+                                groupsContainer.innerHTML = '';
+                            }
+                        }
+                        
+                        const saveBtn = modal.querySelector('#saveConfig');
+                        if (saveBtn) {
+                            saveBtn.disabled = Object.keys(existingConfigs).length === 0;
+                        }
+                    }
+                }
+                
+                renderManualConfig();
+                renderGroupList();
+                updateFileList();
+            }
+        }
+
+        function renderGroupList() {
+            const groups = Object.keys(state.manualConfig.groups);
+            if (groups.length === 0) {
+                elements.groupList.innerHTML = '<span style="color: #7f8c8d;">暂无分组，请先配置文件</span>';
+                elements.startManualMergeBtn.disabled = true;
+                elements.partialConfigInfo.style.display = 'none';
+                return;
+            }
+
+            let html = '';
+            groups.forEach(groupName => {
+                const group = state.manualConfig.groups[groupName];
+                const fileCount = Object.keys(group.fileConfigs).length;
+                html += `
+                    <div class="group-tag">
+                        ${groupName}
+                        <span class="count">${fileCount}个文件</span>
+                    </div>
+                `;
+            });
+
+            elements.groupList.innerHTML = html;
+            
+            const hasConfiguredFiles = state.files.some(file => 
+                state.manualConfig.fileData[file.name] && 
+                state.manualConfig.fileData[file.name].configured
+            );
+            elements.startManualMergeBtn.disabled = !hasConfiguredFiles || groups.length === 0;
+            
+            if (state.files.length > 0 && hasConfiguredFiles) {
+                const allConfigured = state.files.every(file => 
+                    state.manualConfig.fileData[file.name] && 
+                    state.manualConfig.fileData[file.name].configured
+                );
+                if (!allConfigured) {
+                    elements.partialConfigInfo.style.display = 'block';
+                } else {
+                    elements.partialConfigInfo.style.display = 'none';
+                }
+            } else {
+                elements.partialConfigInfo.style.display = 'none';
+            }
+        }
+
+        // ==================== 手动合并处理（支持框选单元格） ====================
+        
+        async function startManualMergeProcess() {
+            if (state.isProcessing) return;
+
+            const configuredFiles = state.files.filter(file => 
+                state.manualConfig.fileData[file.name] && 
+                state.manualConfig.fileData[file.name].configured
+            );
+
+            if (configuredFiles.length === 0) {
+                log('没有已配置的文件', 'error');
+                return;
+            }
+
+            const groups = Object.keys(state.manualConfig.groups);
+            if (groups.length === 0) {
+                log('请先创建分组', 'error');
+                return;
+            }
+
+            state.isProcessing = true;
+            elements.startManualMergeBtn.disabled = true;
+            updateStatus('正在分组合并...', true);
+            
+            state.groupResults = {};
+            elements.groupDownloadSection.classList.remove('active');
+            
+            try {
+                showProgress(5);
+                let progress = 5;
+
+                // 读取所有已配置文件的数据
+                const allData = {};
+                for (const file of configuredFiles) {
+                    progress += 5;
+                    showProgress(progress);
+                    
+                    if (!state.manualConfig.fileData[file.name].data) {
+                        const data = await readFileData(file);
+                        state.manualConfig.fileData[file.name].data = data;
+                    }
+                    allData[file.name] = state.manualConfig.fileData[file.name].data;
+                }
+
+                const groupCount = groups.length;
+                let completedGroups = 0;
+
+                log(`开始处理 ${groupCount} 个分组...`, 'info');
+
+                for (const groupName of groups) {
+                    const group = state.manualConfig.groups[groupName];
+                    
+                    log(`正在处理分组: ${groupName}`, 'info');
+                    showProgress(5 + (completedGroups / groupCount) * 80);
+
+                    const groupData = {
+                        parameters: [],
+                        data: []
+                    };
+
+                    for (const file of configuredFiles) {
+                        const fileConfig = group.fileConfigs[file.name];
+                        if (!fileConfig) {
+                            log(`  跳过文件 ${file.name} (此组未配置)`, 'warning');
+                            continue;
+                        }
+
+                        const data = allData[file.name];
+                        if (!data || data.length === 0) continue;
+
+                        const paramCol = fileConfig.paramCol;
+                        const paramRowStart = fileConfig.paramRowStart || 1;
+                        const paramRowEnd = fileConfig.paramRowEnd || (data.length - 1);
+                        const dataCols = fileConfig.dataCols;
+                        const dataRowStart = fileConfig.dataRowStart || 1;
+                        const dataRowEnd = fileConfig.dataRowEnd || (data.length - 1);
+
+                        const actualRowStart = Math.max(paramRowStart, dataRowStart);
+                        const actualRowEnd = Math.min(paramRowEnd, dataRowEnd);
+
+                        if (actualRowStart > actualRowEnd) {
+                            log(`  跳过文件 ${file.name} (行范围不匹配)`, 'warning');
+                            continue;
+                        }
+
+                        for (let row = actualRowStart; row <= actualRowEnd; row++) {
+                            const paramCell = data[row][paramCol];
+                            if (!paramCell || String(paramCell).trim() === '') continue;
+
+                            const param = String(paramCell).trim();
+                            const rowData = [param];
+
+                            for (const col of dataCols) {
+                                const cell = data[row][col];
+                                const value = cell && !isNaN(parseFloat(cell)) ? parseFloat(cell) : 0;
+                                rowData.push(value);
+                            }
+
+                            if (groupData.parameters.length === 0) {
+                                groupData.parameters.push(param);
+                                groupData.data.push(rowData);
+                            } else {
+                                const existingIndex = groupData.parameters.indexOf(param);
+                                if (existingIndex === -1) {
+                                    groupData.parameters.push(param);
+                                    groupData.data.push(rowData);
+                                } else {
+                                    for (let i = 1; i < rowData.length; i++) {
+                                        groupData.data[existingIndex][i] += rowData[i];
+                                    }
+                                }
+                            }
+                        }
+
+                        log(`  文件 ${file.name}: 提取完成 (行${actualRowStart + 1}-${actualRowEnd + 1})`, 'info');
+                    }
+
+                    if (groupData.data.length > 0) {
+                        const workbook = XLSX.utils.book_new();
+
+                        // 1. 合并结果sheet
+                        const resultSheetData = [['参数', ...Array.from({length: groupData.data[0].length - 1}, (_, i) => `数据${i+1}`)]];
+                        resultSheetData.push(...groupData.data);
+                        const resultWorksheet = XLSX.utils.aoa_to_sheet(resultSheetData);
+                        XLSX.utils.book_append_sheet(workbook, resultWorksheet, '合并结果');
+
+                        // 2. 计算明细sheet
+                        const detailSheetData = [['文件名', '行号', '参数', ...Array.from({length: groupData.data[0].length - 1}, (_, i) => `数据${i+1}`)]];
+                        
+                        for (const file of configuredFiles) {
+                            const fileConfig = group.fileConfigs[file.name];
+                            if (!fileConfig) continue;
+
+                            const data = allData[file.name];
+                            if (!data || data.length === 0) continue;
+
+                            const paramCol = fileConfig.paramCol;
+                            const paramRowStart = fileConfig.paramRowStart || 1;
+                            const paramRowEnd = fileConfig.paramRowEnd || (data.length - 1);
+                            const dataCols = fileConfig.dataCols;
+                            const dataRowStart = fileConfig.dataRowStart || 1;
+                            const dataRowEnd = fileConfig.dataRowEnd || (data.length - 1);
+
+                            const actualRowStart = Math.max(paramRowStart, dataRowStart);
+                            const actualRowEnd = Math.min(paramRowEnd, dataRowEnd);
+
+                            for (let row = actualRowStart; row <= actualRowEnd; row++) {
+                                const paramCell = data[row][paramCol];
+                                if (!paramCell || String(paramCell).trim() === '') continue;
+
+                                const param = String(paramCell).trim();
+                                const rowData = [file.name, row + 1, param];
+
+                                for (const col of dataCols) {
+                                    const cell = data[row][col];
+                                    const value = cell && !isNaN(parseFloat(cell)) ? parseFloat(cell) : 0;
+                                    rowData.push(value);
+                                }
+
+                                detailSheetData.push(rowData);
+                            }
+                        }
+
+                        const detailWorksheet = XLSX.utils.aoa_to_sheet(detailSheetData);
+                        XLSX.utils.book_append_sheet(workbook, detailWorksheet, '计算明细');
+
+                        // 生成Blob
+                        const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+                        const blob = new Blob([wbout], { type: 'application/octet-stream' });
+
+                        // 存储结果
+                        state.groupResults[groupName] = {
+                            blob: blob,
+                            workbook: workbook,
+                            recordCount: groupData.data.length
+                        };
+
+                        log(`✓ 分组 "${groupName}" 处理完成，${groupData.data.length} 条记录`, 'success');
+                    } else {
+                        log(`⚠ 分组 "${groupName}" 无数据`, 'warning');
+                    }
+
+                    completedGroups++;
+                }
+
+                showProgress(100);
+                
+                renderGroupDownloadList();
+                
+                log('所有分组处理完成！', 'success');
+                updateStatus('分组合并完成', false);
+
+            } catch (error) {
+                log(`分组合并错误: ${error.message}`, 'error');
+                updateStatus('处理失败', false);
+            } finally {
+                setTimeout(() => {
+                    state.isProcessing = false;
+                    elements.startManualMergeBtn.disabled = false;
+                    hideProgress();
+                }, 1000);
+            }
+        }
+
+        function renderGroupDownloadList() {
+            const groups = Object.keys(state.groupResults);
+            
+            if (groups.length === 0) {
+                elements.groupDownloadList.innerHTML = `
+                    <div class="empty-state">
+                        暂无分组结果，请先运行合并
+                    </div>
+                `;
+                elements.groupDownloadSection.classList.remove('active');
+                return;
+            }
+
+            let html = '';
+            groups.forEach(groupName => {
+                const result = state.groupResults[groupName];
+                html += `
+                    <div class="group-download-item">
+                        <div class="group-download-info">
+                            <div class="group-name">${groupName}</div>
+                            <div class="group-stats">记录数: ${result.recordCount} | 大小: ${formatFileSize(result.blob.size)}</div>
+                        </div>
+                        <div class="group-download-actions">
+                            <button class="btn btn-success download-group-btn" data-group-name="${groupName}">
+                                <span>📥</span> 下载 ${groupName}
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            elements.groupDownloadList.innerHTML = html;
+            elements.groupDownloadSection.classList.add('active');
+        }
+
+        function downloadGroupResult(groupName) {
+            const result = state.groupResults[groupName];
+            if (!result || !result.blob) {
+                log(`分组 "${groupName}" 的结果不可用`, 'error');
+                return;
+            }
+
+            const fileName = `${groupName}_合并结果.xlsx`;
+            
+            const url = URL.createObjectURL(result.blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            log(`已下载分组结果: ${fileName}`, 'success');
+        }
+
+        // ==================== 自动模式原有功能 ====================
+        
         async function startMergeProcess() {
             if (state.files.length === 0) {
                 log('请先添加Excel文件', 'error');
@@ -658,7 +2524,6 @@
             
             if (state.isProcessing) return;
             
-            // 重置状态
             state.isProcessing = true;
             elements.startMergeBtn.disabled = true;
             elements.downloadBtn.disabled = true;
@@ -671,7 +2536,6 @@
             showProgress(5);
             
             try {
-                // 模拟进度
                 let progress = 5;
                 const progressInterval = setInterval(() => {
                     progress += Math.random() * 5;
@@ -679,27 +2543,22 @@
                     showProgress(progress);
                 }, 200);
                 
-                // 执行合并
                 const result = await mergeExcelFiles(state.files);
                 
                 clearInterval(progressInterval);
                 showProgress(100);
                 
-                // 存储结果供下载
                 state.mergedWorkbook = result.workbook;
                 state.mergedBlob = result.blob;
                 
                 log('合并完成！', 'success');
                 updateStatus('合并完成', false);
-                
-                // 启用下载按钮
                 elements.downloadBtn.disabled = false;
                 
             } catch (error) {
                 log(`错误: ${error.message}`, 'error');
                 updateStatus('处理失败', false);
             } finally {
-                // 恢复UI状态
                 setTimeout(() => {
                     state.isProcessing = false;
                     elements.startMergeBtn.disabled = false;
@@ -711,11 +2570,9 @@
             }
         }
 
-        // 合并Excel文件的核心函数
         async function mergeExcelFiles(files) {
             return new Promise(async (resolve, reject) => {
                 try {
-                    // 关键词定义（与原PowerShell脚本保持一致）
                     const startKeywords = [
                         "年初", "期初", "年初余额", "期初余额", "期初数", "年初数",
                         "年初金额", "期初金额", "年初值", "期初值", "上年年末", "上期期初"
@@ -725,28 +2582,21 @@
                         "期末金额", "年末金额", "期末值", "年末值", "本期期末", "本年期末", "本期"
                     ];
 
-                    // 用于存储所有明细数据
                     const detailList = [];
                     
-                    // 处理每个文件
                     for (let i = 0; i < files.length; i++) {
                         const file = files[i];
                         log(`处理文件 (${i+1}/${files.length}): ${file.name}`, 'info');
                         
                         try {
-                            // 读取文件
                             const data = await readFileAsArrayBuffer(file);
-                            
-                            // 解析Excel
                             const workbook = XLSX.read(data, { type: 'array' });
                             const firstSheetName = workbook.SheetNames[0];
                             const worksheet = workbook.Sheets[firstSheetName];
                             
-                            // 获取使用范围
                             const range = XLSX.utils.decode_range(worksheet['!ref']);
-                            const lastRow = Math.min(range.e.r + 1, 100); // 限制扫描行数
+                            const lastRow = Math.min(range.e.r + 1, 100);
                             
-                            // 查找标题行
                             let assetHeaderRow = null, assetCol = null;
                             let liabHeaderRow = null, liabCol = null;
                             
@@ -780,7 +2630,6 @@
                                 continue;
                             }
                             
-                            // 辅助函数：判断是否为序号列
                             function isSerialColumn(col, startRow, endRow) {
                                 let intCount = 0;
                                 let totalCount = 0;
@@ -798,7 +2647,6 @@
                                 return totalCount > 0 && (intCount / totalCount) > 0.6;
                             }
                             
-                            // 辅助函数：判断是否为金额列
                             function isAmountColumn(col, startRow, endRow) {
                                 let numCount = 0;
                                 let totalCount = 0;
@@ -818,7 +2666,6 @@
                                 return totalCount > 0 && (numCount / totalCount) > 0.4;
                             }
                             
-                            // 确定数据起始行
                             const assetDataRow = assetHeaderRow !== null ? assetHeaderRow + 1 : 0;
                             const liabDataRow = liabHeaderRow !== null ? liabHeaderRow + 1 : 0;
                             const dataStartRow = Math.max(assetDataRow, liabDataRow);
@@ -853,7 +2700,6 @@
                                     if (assetStartCol && assetEndCol) break;
                                 }
                                 
-                                // 如果没有找到关键词，则使用数字特征识别
                                 if (!assetStartCol || !assetEndCol) {
                                     const amountCols = [];
                                     for (let c = assetCol + 1; c <= Math.min(assetCol + 10, range.e.c); c++) {
@@ -902,7 +2748,6 @@
                                     if (liabStartCol && liabEndCol) break;
                                 }
                                 
-                                // 如果没有找到关键词，则使用数字特征识别
                                 if (!liabStartCol || !liabEndCol) {
                                     const amountCols = [];
                                     for (let c = liabCol + 1; c <= Math.min(liabCol + 10, range.e.c); c++) {
@@ -1027,7 +2872,6 @@
                     const assetOrder = [];
                     const liabOrder = [];
                     
-                    // 按类别和项目分组汇总
                     const groupedData = {};
                     detailList.forEach(rec => {
                         const key = `${rec.Category}||${rec.Item}`;
@@ -1059,7 +2903,6 @@
                     
                     // 第三步：创建合并结果表
                     const resultSheetData = [];
-                    // 添加标题行
                     resultSheetData.push([
                         '资产', '年初数', '期末数',
                         '负债及所有者权益', '年初数', '期末数'
@@ -1094,12 +2937,10 @@
                     
                     const resultWorksheet = XLSX.utils.aoa_to_sheet(resultSheetData);
                     
-                    // 创建工作簿并添加工作表
                     const mergedWorkbook = XLSX.utils.book_new();
                     XLSX.utils.book_append_sheet(mergedWorkbook, resultWorksheet, '合并结果');
                     XLSX.utils.book_append_sheet(mergedWorkbook, detailWorksheet, '计算明细');
                     
-                    // 生成Blob
                     const wbout = XLSX.write(mergedWorkbook, { bookType: 'xlsx', type: 'array' });
                     const blob = new Blob([wbout], { type: 'application/octet-stream' });
                     
@@ -1116,7 +2957,6 @@
             });
         }
 
-        // 读取文件为ArrayBuffer
         function readFileAsArrayBuffer(file) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -1126,7 +2966,6 @@
             });
         }
 
-        // 下载合并后的文件
         function downloadMergedFile() {
             if (!state.mergedBlob) {
                 log('没有可用的合并结果', 'error');
@@ -1135,7 +2974,6 @@
             
             const fileName = elements.outputName.value.trim() || '合并结果.xlsx';
             
-            // 创建下载链接
             const url = URL.createObjectURL(state.mergedBlob);
             const a = document.createElement('a');
             a.href = url;
@@ -1148,10 +2986,17 @@
             log(`已下载文件: ${fileName}`, 'success');
         }
 
-        // 初始化应用
+        // ==================== 应用初始化 ====================
+        
         function initApp() {
             log('Excel合并工具已就绪', 'info');
-            log('提示：支持多文件选择，合并结果包含"合并结果"和"计算明细"两个工作表', 'info');
+            log('提示：您可以选择自动模式或手动模式进行文件合并', 'info');
+            
+            // 检查Handsontable加载状态
+            if (!checkHandsontableLoaded()) {
+                log('💡 提示：如果无法加载表格预览，可以使用手动输入模式配置列号', 'info');
+            }
+            
             updateStatus('就绪');
             initEventListeners();
         }
